@@ -1,5 +1,7 @@
 node_modules/
-tmp/
-*.log
 data/
+tmp/
+.git/
+.claude/
+*.log
 .env

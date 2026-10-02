@@ -1,0 +1,42 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "4321:4321"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATA_DIR=/app/data
+      - API_RATE_LIMIT_MAX=60
+      - API_RATE_LIMIT_WINDOW_MS=60000
+      # - S3_BUCKET=your-bucket        # uncomment to use S3 instead of the shared volume below
+      # - S3_REGION=us-east-1
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "src/worker.js"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATA_DIR=/app/data
+      - WORKER_CONCURRENCY=2
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      - redis
+    # Scale PDF processing independently of the web tier:
+    #   docker compose up --scale worker=4
+
+volumes:
+  redis-data:
+  app-data:
