@@ -18,7 +18,10 @@ export function initDb() {
       name TEXT NOT NULL,
       key_hash TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
-      revoked_at TEXT
+      revoked_at TEXT,
+      stripe_customer_id TEXT,
+      stripe_subscription_id TEXT,
+      billing_status TEXT NOT NULL DEFAULT 'none'
     );
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -37,11 +40,24 @@ export function initDb() {
       job_id TEXT NOT NULL,
       bytes_in INTEGER NOT NULL,
       bytes_out INTEGER NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      stripe_reported INTEGER NOT NULL DEFAULT 0,
+      stripe_event_id TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_jobs_api_key ON jobs(api_key_id);
     CREATE INDEX IF NOT EXISTS idx_usage_api_key ON usage_events(api_key_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_stripe_customer ON api_keys(stripe_customer_id);
   `);
+  // Idempotent migration for DBs created before billing was added.
+  for (const stmt of [
+    "ALTER TABLE api_keys ADD COLUMN stripe_customer_id TEXT",
+    "ALTER TABLE api_keys ADD COLUMN stripe_subscription_id TEXT",
+    "ALTER TABLE api_keys ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE usage_events ADD COLUMN stripe_reported INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE usage_events ADD COLUMN stripe_event_id TEXT",
+  ]) {
+    try { db.exec(stmt); } catch { /* column already exists */ }
+  }
   return db;
 }
 
@@ -71,6 +87,28 @@ export function revokeApiKey(id) {
   db.prepare('UPDATE api_keys SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), id);
 }
 
+export function getApiKeyById(id) {
+  return db.prepare('SELECT * FROM api_keys WHERE id = ?').get(id);
+}
+
+export function findApiKeyByStripeCustomer(stripeCustomerId) {
+  return db.prepare('SELECT * FROM api_keys WHERE stripe_customer_id = ?').get(stripeCustomerId);
+}
+
+export function linkStripeCustomer(apiKeyId, stripeCustomerId) {
+  db.prepare("UPDATE api_keys SET stripe_customer_id = ?, billing_status = 'pending' WHERE id = ?")
+    .run(stripeCustomerId, apiKeyId);
+}
+
+export function setBillingStatus(apiKeyId, status, { stripeSubscriptionId } = {}) {
+  if (stripeSubscriptionId !== undefined) {
+    db.prepare('UPDATE api_keys SET billing_status = ?, stripe_subscription_id = ? WHERE id = ?')
+      .run(status, stripeSubscriptionId, apiKeyId);
+  } else {
+    db.prepare('UPDATE api_keys SET billing_status = ? WHERE id = ?').run(status, apiKeyId);
+  }
+}
+
 export function createJob({ id, apiKeyId, tool }) {
   const now = new Date().toISOString();
   db.prepare(
@@ -88,9 +126,15 @@ export function getJobForKey(id, apiKeyId) {
 }
 
 export function recordUsage({ apiKeyId, tool, jobId, bytesIn, bytesOut }) {
-  db.prepare(
+  const info = db.prepare(
     'INSERT INTO usage_events (api_key_id, tool, job_id, bytes_in, bytes_out, created_at) VALUES (?, ?, ?, ?, ?, ?)'
   ).run(apiKeyId, tool, jobId, bytesIn, bytesOut, new Date().toISOString());
+  return info.lastInsertRowid;
+}
+
+export function markUsageReported(usageEventId, stripeEventId) {
+  db.prepare('UPDATE usage_events SET stripe_reported = 1, stripe_event_id = ? WHERE id = ?')
+    .run(stripeEventId, usageEventId);
 }
 
 export function usageSummary(apiKeyId, sinceDays = 30) {

@@ -2,11 +2,14 @@ import { Router } from 'express';
 import multer from 'multer';
 import { randomUUID } from 'node:crypto';
 import { apiKeyAuth } from '../middleware/auth.js';
+import { requireHealthyBilling } from '../middleware/billingGate.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
 import { TOOLS } from '../lib/jobRegistry.js';
 import { createJob, getJobForKey, usageSummary } from '../lib/db.js';
 import { putObject, getObject, sanitizeKeySegment } from '../lib/storage.js';
 import { enqueueJob, queueMode } from '../lib/queue.js';
+import { billingEnabled } from '../lib/stripe.js';
+import { createCheckoutSessionForKey, getInvoicePreview } from '../lib/billing.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
 const router = Router();
@@ -20,7 +23,33 @@ router.get('/tools', (req, res) => {
   res.json({ tools: Object.keys(TOOLS), queueMode });
 });
 
-router.post('/jobs', upload.array('files', 50), asHandler(async (req, res) => {
+router.get('/billing/status', (req, res) => {
+  res.json({
+    billingEnabled: billingEnabled(),
+    status: req.apiKey.billing_status,
+    hasStripeCustomer: Boolean(req.apiKey.stripe_customer_id),
+  });
+});
+
+router.post('/billing/checkout-session', asHandler(async (req, res) => {
+  if (!billingEnabled()) return res.status(501).json({ error: 'Billing is not configured on this server.' });
+  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const url = await createCheckoutSessionForKey(req.apiKey.id, {
+    email: req.body?.email,
+    successUrl: req.body?.successUrl || `${appUrl}/billing/success`,
+    cancelUrl: req.body?.cancelUrl || `${appUrl}/billing/cancel`,
+  });
+  res.json({ url });
+}));
+
+router.get('/billing/invoice-preview', asHandler(async (req, res) => {
+  if (!billingEnabled()) return res.status(501).json({ error: 'Billing is not configured on this server.' });
+  const preview = await getInvoicePreview(req.apiKey.id);
+  if (!preview) return res.status(404).json({ error: 'No active subscription for this key yet.' });
+  res.json({ amountDue: preview.amount_due, currency: preview.currency, periodEnd: preview.period_end, lines: preview.lines.data.map((l) => ({ description: l.description, amount: l.amount, quantity: l.quantity })) });
+}));
+
+router.post('/jobs', requireHealthyBilling, upload.array('files', 50), asHandler(async (req, res) => {
   const { tool } = req.body;
   if (!TOOLS[tool]) {
     return res.status(400).json({ error: `Unknown tool "${tool}". See GET /api/v1/tools for the list.` });

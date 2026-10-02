@@ -48,7 +48,10 @@ Without these, every other tool still works fully; Compress falls back to a basi
 
 Node.js + Express backend, vanilla HTML/CSS/JS frontend (no build step). PDF manipulation via
 `pdf-lib`; rendering via `pdfjs-dist` + `@napi-rs/canvas`; zipping multi-file results via
-`archiver`.
+`archiver`. The hosted-service layer below adds `bullmq`/`ioredis` (job queue), Node's built-in
+`node:sqlite` (API keys/jobs/usage — no native DB driver), `@aws-sdk/client-s3` (optional
+storage backend), and `stripe` (billing). All MIT/Apache-2.0, confirmed with `npm view <pkg>
+license` before adding.
 
 ---
 
@@ -135,13 +138,63 @@ Job inputs/outputs default to local disk (`DATA_DIR/storage`). Set `S3_BUCKET` (
 disk isn't shared across machines. `docker-compose.yml` uses a shared Docker volume as a
 single-host stand-in for S3.
 
+### Billing (Stripe)
+
+Each API key can be linked to a Stripe subscription on a **metered** price. Every completed
+job reports one usage event to Stripe (or bytes-out, if you set `STRIPE_METER_UNIT=bytes_out`);
+Stripe aggregates and invoices automatically. A key with no Stripe customer linked (the
+default) is simply unmetered — nothing breaks if you never touch this.
+
+**One-time Stripe setup** (test mode to start — [dashboard.stripe.com/test](https://dashboard.stripe.com/test)):
+
+1. **Meters** page → Create meter. Event name: `pdf_toolkit_jobs` (must match
+   `STRIPE_METER_EVENT_NAME`), aggregation: Sum.
+2. **Product catalog** → Create product → Usage-based price → pick the meter from step 1,
+   set your per-unit rate, monthly billing. Copy the Price ID (`price_...`).
+3. Get your secret key from **Developers → API keys** (`sk_test_...`).
+4. For webhooks locally: `stripe listen --forward-to localhost:4321/api/v1/stripe/webhook`
+   prints a `whsec_...` signing secret. In production, add the same URL under
+   **Developers → Webhooks** and subscribe to `checkout.session.completed`,
+   `customer.subscription.updated`, `customer.subscription.deleted`.
+
+Set the four `STRIPE_*` vars from `.env.example`, then:
+
+```bash
+# Customer self-serve: get a Stripe Checkout link for their own key
+curl -X POST -H "X-API-Key: $KEY" \
+  -d '{"email":"customer@example.com"}' -H "Content-Type: application/json" \
+  http://localhost:4321/api/v1/billing/checkout-session
+# → {"url": "https://checkout.stripe.com/..."}  — send/open this; they add a card and subscribe
+
+curl -H "X-API-Key: $KEY" http://localhost:4321/api/v1/billing/status
+# → {"status": "active", ...}   (flips from "pending" once checkout completes, via webhook)
+
+curl -H "X-API-Key: $KEY" http://localhost:4321/api/v1/billing/invoice-preview
+```
+
+Keys whose billing status isn't `none` / `pending` / `active` / `trialing` (e.g. `past_due`,
+`canceled`, `unpaid` — Stripe's own subscription status strings, kept in sync via webhook) get
+a `402` on new job submissions. They can still reach `/billing/status` and download results
+from jobs they already paid for.
+
+Usage reporting to Stripe never fails a job — if Stripe is down or misconfigured, the error is
+logged (`[billing] failed to report usage event ...`) and the customer still gets their PDF;
+nothing here can turn your own product's availability into a Stripe outage.
+
+**Note on Stripe's own guidance:** Stripe currently points *new* usage-based billing
+integrations at [Metronome](https://docs.stripe.com/billing/usage-based) (a separate platform
+Stripe partners with) for anything beyond simple pay-as-you-go — prepaid credits, contracts,
+multiple pricing dimensions. The Billing Meters API used here remains fully supported and is
+the right fit for straightforward per-job metering like this; moving to Metronome later is a
+separate integration, not a refactor of this code.
+
 ### What's still manual beyond this
 
-This gets you queue + storage + auth + metering. Still missing for a real commercial launch:
-billing integration (Stripe etc. — `usage_events` in SQLite gives you the raw numbers to bill
-from), a signup/key-delivery flow, TLS termination (put this behind a reverse proxy / managed
-load balancer), and structured monitoring. The PDF logic itself needed none of this — it was
-already stateless per-request.
+This gets you queue + storage + auth + metering + billing. Still missing for a real commercial
+launch: a signup/key-delivery flow (keys are currently issued by the operator via CLI — see
+above), TLS termination (put this behind a reverse proxy / managed load balancer), and
+structured monitoring. The PDF logic itself needed none of this — it was already stateless
+per-request.
 
 ### Licensing note for hosted deployment
 

@@ -17,6 +17,11 @@ services:
       - API_RATE_LIMIT_WINDOW_MS=60000
       # - S3_BUCKET=your-bucket        # uncomment to use S3 instead of the shared volume below
       # - S3_REGION=us-east-1
+      - APP_URL=${APP_URL:-http://localhost:4321}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+      - STRIPE_METERED_PRICE_ID=${STRIPE_METERED_PRICE_ID:-}
+      - STRIPE_METER_EVENT_NAME=${STRIPE_METER_EVENT_NAME:-pdf_toolkit_jobs}
     volumes:
       - app-data:/app/data
     depends_on:
@@ -30,6 +35,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - DATA_DIR=/app/data
       - WORKER_CONCURRENCY=2
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_METER_EVENT_NAME=${STRIPE_METER_EVENT_NAME:-pdf_toolkit_jobs}
     volumes:
       - app-data:/app/data
     depends_on:

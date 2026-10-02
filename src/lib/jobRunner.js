@@ -1,6 +1,7 @@
 import { getObject, putObject, sanitizeKeySegment } from './storage.js';
 import { updateJobStatus, recordUsage } from './db.js';
 import { TOOLS } from './jobRegistry.js';
+import { reportJobUsage } from './billing.js';
 
 /** Executes one queued job: loads its inputs from storage, runs the tool, stores the
  *  outputs, and updates the job row. Called directly for inline (no-Redis) processing,
@@ -32,7 +33,8 @@ export async function runJob({ id, tool, options, inputKeys, originalNames, mime
     }
 
     updateJobStatus(id, 'completed', { resultFiles });
-    recordUsage({ apiKeyId, tool, jobId: id, bytesIn, bytesOut });
+    const usageEventId = recordUsage({ apiKeyId, tool, jobId: id, bytesIn, bytesOut });
+    await reportJobUsage({ apiKeyId, usageEventId, bytesOut });
   } catch (err) {
     updateJobStatus(id, 'failed', { error: err.message });
     throw err;
