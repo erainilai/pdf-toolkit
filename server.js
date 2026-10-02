@@ -9,11 +9,14 @@ import { initDb } from './src/lib/db.js';
 import { queueMode } from './src/lib/queue.js';
 import { storageBackend } from './src/lib/storage.js';
 import { billingEnabled } from './src/lib/stripe.js';
+import { startRetentionSweeper } from './src/lib/retention.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 initDb();
+startRetentionSweeper();
+app.set('trust proxy', Number(process.env.TRUST_PROXY || 0)); // set to 1 behind a load balancer so rate limits see real client IPs
 
 app.get('/healthz', (req, res) => res.json({ ok: true, queueMode, storage: storageBackend(), billingEnabled: billingEnabled() }));
 app.use(express.static(join(__dirname, 'public')));
@@ -24,7 +27,7 @@ app.use('/api/v1', v1Router);
 
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    const msg = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (200MB limit).' : err.message;
+    const msg = err.code === 'LIMIT_FILE_SIZE' ? `File is too large (${process.env.MAX_UPLOAD_MB || 100} MB limit).` : err.message;
     return res.status(400).json({ error: msg });
   }
   console.error(err);

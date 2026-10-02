@@ -4,18 +4,24 @@ import { randomUUID } from 'node:crypto';
 import { apiKeyAuth } from '../middleware/auth.js';
 import { requireHealthyBilling } from '../middleware/billingGate.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
-import { TOOLS } from '../lib/jobRegistry.js';
+import { TOOLS, minFilesFor } from '../lib/jobRegistry.js';
 import { createJob, getJobForKey, usageSummary } from '../lib/db.js';
 import { putObject, getObject, sanitizeKeySegment } from '../lib/storage.js';
 import { enqueueJob, queueMode } from '../lib/queue.js';
 import { billingEnabled } from '../lib/stripe.js';
 import { createCheckoutSessionForKey, getInvoicePreview } from '../lib/billing.js';
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 100) * 1024 * 1024, files: 50 } });
 const router = Router();
 const asHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
-const CONTENT_TYPES = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', zip: 'application/zip', txt: 'text/plain; charset=utf-8' };
+const CONTENT_TYPES = {
+  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', zip: 'application/zip',
+  txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
 
 router.use(apiKeyAuth, createRateLimiter());
 
@@ -54,8 +60,9 @@ router.post('/jobs', requireHealthyBilling, upload.array('files', 50), asHandler
   if (!TOOLS[tool]) {
     return res.status(400).json({ error: `Unknown tool "${tool}". See GET /api/v1/tools for the list.` });
   }
-  if (!req.files?.length) {
-    return res.status(400).json({ error: 'Upload at least one file in the "files" field.' });
+  const min = minFilesFor(tool);
+  if ((req.files?.length || 0) < min) {
+    return res.status(400).json({ error: `Upload at least ${min} file(s) in the "files" field.` });
   }
   let options = {};
   if (req.body.options) {
@@ -70,7 +77,7 @@ router.post('/jobs', requireHealthyBilling, upload.array('files', 50), asHandler
   const inputKeys = [];
   const originalNames = [];
   const mimetypes = [];
-  for (let i = 0; i < req.files.length; i++) {
+  for (let i = 0; i < (req.files?.length || 0); i++) {
     const file = req.files[i];
     const key = `jobs/${id}/input/${i}-${sanitizeKeySegment(file.originalname)}`;
     await putObject(key, file.buffer);
@@ -91,6 +98,7 @@ router.get('/jobs/:id', (req, res) => {
 
   const result = { id: job.id, tool: job.tool, status: job.status, createdAt: job.created_at, updatedAt: job.updated_at };
   if (job.status === 'failed') result.error = job.error;
+  if (job.status === 'expired') result.error = 'Result files were deleted after the retention period.';
   if (job.status === 'completed') {
     result.files = JSON.parse(job.result_files || '[]').map((f) => ({
       name: f.name, size: f.size, url: `/api/v1/jobs/${job.id}/files/${encodeURIComponent(f.name)}`,

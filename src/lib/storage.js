@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 
 const DATA_DIR = process.env.DATA_DIR || join(process.cwd(), 'data');
@@ -55,4 +55,21 @@ export async function getObject(key) {
 
 export function storageBackend() {
   return S3_BUCKET ? `s3://${S3_BUCKET}` : `local:${LOCAL_ROOT}`;
+}
+
+/** Deletes every object under a prefix such as "jobs/<id>/" (local dir or S3 keys). */
+export async function deletePrefix(prefix) {
+  if (S3_BUCKET) {
+    const { ListObjectsV2Command, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+    const client = await getS3();
+    let token;
+    do {
+      const page = await client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: prefix, ContinuationToken: token }));
+      const keys = (page.Contents || []).map((o) => ({ Key: o.Key }));
+      if (keys.length) await client.send(new DeleteObjectsCommand({ Bucket: S3_BUCKET, Delete: { Objects: keys } }));
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return;
+  }
+  await rm(localPathFor(prefix), { recursive: true, force: true });
 }

@@ -1,48 +1,54 @@
 # PDF Toolkit
 
-A locally runnable PDF toolkit covering the most-used [iLovePDF](https://www.ilovepdf.com/)-style
-tools: merge, split, compress, rotate, organize, watermark, page numbers, protect/unlock,
-images↔PDF conversion, and text extraction. Everything runs on your own machine — files are
-processed in memory/temp files and never sent anywhere else.
+A self-hostable document toolkit: the everyday [iLovePDF](https://www.ilovepdf.com/)-style PDF
+tools, plus Office ↔ PDF, Tamil OCR and font conversion, an exam photo/signature resizer,
+background removal, a GST invoice generator and spreadsheet tools. Files are processed and then
+deleted — nothing is kept or sent to third parties.
 
 ## Run it
 
 ```bash
-npm install
+npm install          # also downloads the 4.6 MB background-removal model into models/
 npm start
 ```
 
 Then open http://localhost:4321
 
-## Features
+On Linux x64, set `ONNXRUNTIME_NODE_INSTALL_CUDA=skip` before `npm install` so onnxruntime
+doesn't download CUDA libraries you don't need.
 
-| Tool | Notes |
-|---|---|
-| Merge PDF | Combine any number of PDFs |
-| Split PDF | By custom ranges or every N pages |
-| Remove / Extract pages | Page-range based |
-| Rotate PDF | 90°/180°/270°, all or selected pages |
-| Organize Pages | Drag-to-reorder thumbnails, delete pages |
-| Watermark | Text watermark with color/opacity/rotation/position |
-| Page Numbers | Custom position, start number, format |
-| Images → PDF | JPG/PNG to a single PDF |
-| PDF → Images | Export pages as PNG/JPG |
-| PDF → Text | Extract all text |
-| Compress PDF | Basic (always available) or strong (needs Ghostscript) |
-| Protect / Unlock PDF | Needs `qpdf` installed (bundled automatically in the Docker image) |
+## Tools
+
+| Category | Tool | Runs | Notes |
+|---|---|---|---|
+| Popular | Exam Photo & Signature | Browser | TNPSC, SSC, IBPS, UPSC, passport presets; exact px + KB range; optional name/date strip |
+| | Word / Excel / PPT to PDF | Server | Needs LibreOffice |
+| | GST Invoice Generator | Server | CGST+SGST or IGST from GSTIN/place of supply, GSTIN check digit, amount in words (lakh/crore), Tamil text |
+| PDF | Merge, Split, Remove/Extract pages, Rotate, Organize | Server | |
+| | Watermark, Page Numbers | Server | Unicode fonts — Tamil and ₹ work |
+| | Compress PDF | Server | Re-compresses embedded images (no Ghostscript needed); never returns a bigger file |
+| Convert | Images → PDF | Server | JPG, PNG, WebP, AVIF, TIFF, GIF, iPhone HEIC; EXIF rotation applied |
+| | PDF → Images / Text / Word / PowerPoint | Server | Word/PPT need LibreOffice; layout kept as positioned text boxes |
+| Images | Remove Background | Server | U²-Net (ONNX); transparent PNG or solid white/blue for ID photos |
+| | Convert & Compress Images | Server | JPG/PNG/WebP/AVIF, resize, quality |
+| Tamil | Tamil OCR | Server | tesseract.js, Tamil + English data bundled; outputs searchable PDF + text |
+| | Tamil Font Converter | Browser | Bamini / SunTommy ↔ Unicode |
+| Data | Clean / Convert / Merge Excel & CSV | Server | Trim, drop empty rows/cols, dedupe by columns; XLSX ↔ CSV ↔ JSON; UTF-8 BOM so Excel shows Tamil |
+| Security | Protect / Unlock | Server | Needs `qpdf` |
+
+Every server tool is also available through the hosted job API (`/api/v1/jobs`, below) and through
+`POST /api/tool/<name>` for the browser UI.
 
 ### Optional system tools
 
-Two features use optional system binaries for stronger results, and fall back gracefully or
-tell you what's missing if they're absent:
-
 ```bash
-brew install qpdf         # enables Protect / Unlock (password encryption)
-brew install ghostscript  # enables stronger PDF compression
+brew install qpdf                        # Protect / Unlock
+brew install --cask libreoffice          # Office ↔ PDF (set SOFFICE_PATH if soffice isn't on PATH)
+brew install ghostscript                 # optional, even stronger compression (see licensing note)
 ```
 
-Without these, every other tool still works fully; Compress falls back to a basic
-(pdf-lib based) compression pass.
+Everything else is pure Node (WebAssembly or prebuilt binaries) and works out of the box. The
+Docker image includes qpdf, LibreOffice and Noto fonts.
 
 ## Stack
 
@@ -52,6 +58,19 @@ Node.js + Express backend, vanilla HTML/CSS/JS frontend (no build step). PDF man
 `node:sqlite` (API keys/jobs/usage — no native DB driver), `@aws-sdk/client-s3` (optional
 storage backend), and `stripe` (billing). All MIT/Apache-2.0, confirmed with `npm view <pkg>
 license` before adding.
+`pdf-lib` (+ `@pdf-lib/fontkit` for Unicode/Tamil shaping); rendering via `pdfjs-dist` +
+`@napi-rs/canvas`; images via `sharp`; OCR via `tesseract.js`; background removal via
+`onnxruntime-node`; spreadsheets via `exceljs`; Office conversion via LibreOffice.
+
+Adding a tool = one function in `src/lib/jobRegistry.js` (it is then exposed on both APIs) plus
+one entry in the `TOOLS` list in `public/js/app.js`.
+
+### Limits and privacy settings
+
+See `.env.example`. The important ones for a public deployment: `MAX_UPLOAD_MB` (default 100),
+`WEB_RATE_LIMIT_MAX` (per-IP limit on the browser routes, default 30/min), `TRUST_PROXY=1`
+behind a load balancer, and `FILE_RETENTION_MINUTES` (job outputs deleted after 60 minutes by
+default; inputs are deleted as soon as a job finishes).
 
 ---
 
@@ -123,6 +142,11 @@ curl -H "X-API-Key: $KEY" http://localhost:4321/api/v1/jobs/<id>
 
 # Download a result
 curl -H "X-API-Key: $KEY" -OJ http://localhost:4321/api/v1/jobs/<id>/files/rotated.pdf
+
+# Tools that need no upload take everything in options, e.g. a GST invoice:
+curl -H "X-API-Key: $KEY" -F tool=gst-invoice \
+  -F 'options={"invoice":{"invoiceNo":"INV-1","seller":{"name":"Acme","gstin":"33…"},"items":[{"description":"Service","qty":1,"rate":1000,"gstRate":18}]}}' \
+  http://localhost:4321/api/v1/jobs
 
 # Usage (for metering/billing)
 curl -H "X-API-Key: $KEY" http://localhost:4321/api/v1/usage
@@ -201,7 +225,18 @@ per-request.
 `Dockerfile` installs `qpdf` (Apache-2.0 — safe to bundle) so Protect/Unlock work out of the
 box in containers. It deliberately does **not** install Ghostscript: Ghostscript's open-source
 license is AGPL, and bundling it inside an image you distribute/run as a paid service is a
-different situation than a user installing it on their own machine. Compress still works via
-pdf-lib's basic pass without it. If you want Ghostscript-grade compression in a hosted
+different situation than a user installing it on their own machine. Compress still works without
+it, using the built-in image recompression pass. If you want Ghostscript-grade compression in a hosted
 deployment, get a commercial license from Artifex rather than adding `apt-get install
 ghostscript` to the Dockerfile.
+
+### Third-party data bundled in this repo
+
+- `assets/fonts/` — Noto Sans and Noto Sans Tamil, SIL Open Font License 1.1.
+- `public/js/lib/tamilFontData.js` — Bamini/SunTommy tables derived from
+  [app-tamil-fonts-unicode-converter](https://github.com/ag-sanjjeev/app-tamil-fonts-unicode-converter)
+  (MIT, © 2023 ag-sanjjeev).
+- Background-removal model (downloaded, not committed) — U²-Net, Apache-2.0.
+- Tesseract language data — `@tesseract.js-data/*` npm packages, Apache-2.0.
+- Exam photo presets (`public/data/exam-presets.json`) reflect commonly published specs as of
+  Oct 2026; exam bodies change them, so the UI tells users to check their notification.

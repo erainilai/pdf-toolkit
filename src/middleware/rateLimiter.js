@@ -39,3 +39,34 @@ export function createRateLimiter() {
     limiter(req, res, next);
   };
 }
+
+let ipLimiterPromise;
+/** Per-IP limiter for the unauthenticated browser endpoints (/api/*). Same Redis-or-memory
+ *  store choice as above. WEB_RATE_LIMIT_MAX=0 disables it (e.g. single-user local use). */
+export function createIpRateLimiter() {
+  const max = Number(process.env.WEB_RATE_LIMIT_MAX ?? 30);
+  if (!max) return (req, res, next) => next();
+  return async (req, res, next) => {
+    if (!ipLimiterPromise) {
+      ipLimiterPromise = (async () => {
+        const redisClient = await getRedisClient();
+        let store;
+        if (redisClient) {
+          const { RedisStore } = await import('rate-limit-redis');
+          store = new RedisStore({ prefix: 'rl:web:', sendCommand: (...args) => redisClient.call(...args) });
+        }
+        return rateLimit({
+          windowMs: Number(process.env.WEB_RATE_LIMIT_WINDOW_MS || 60_000),
+          max,
+          standardHeaders: true,
+          legacyHeaders: false,
+          store,
+          // /api/v1/* (keyed API + Stripe webhook) is also routed through the /api router; it has its own per-key limit.
+          skip: (req) => req.method === 'GET' || req.path.startsWith('/v1/'),
+          message: { error: 'Too many requests from your network. Please wait a minute and try again.' },
+        });
+      })();
+    }
+    (await ipLimiterPromise)(req, res, next);
+  };
+}

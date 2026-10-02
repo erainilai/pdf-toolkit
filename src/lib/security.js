@@ -13,6 +13,7 @@ async function withTempDir(fn) {
 }
 
 export async function protectPdf(buffer, password) {
+  if (/[\r\n]/.test(password)) throw new Error('Password cannot contain line breaks.');
   const { qpdf } = await detectSystemTools();
   if (!qpdf) {
     throw new Error(
@@ -24,9 +25,10 @@ export async function protectPdf(buffer, password) {
     const inPath = join(dir, 'in.pdf');
     const outPath = join(dir, 'out.pdf');
     await writeFile(inPath, buffer);
-    await execFileAsync('qpdf', [
-      '--encrypt', password, password, '256', '--', inPath, outPath,
-    ]);
+    // Arguments go through a temp @args file so the password never appears in `ps` output.
+    const argsPath = join(dir, 'args');
+    await writeFile(argsPath, ['--encrypt', password, password, '256', '--', inPath, outPath].join('\n'), { mode: 0o600 });
+    await execFileAsync('qpdf', [`@${argsPath}`]);
     return readFile(outPath);
   });
 }
@@ -43,8 +45,10 @@ export async function unlockPdf(buffer, password) {
     const inPath = join(dir, 'in.pdf');
     const outPath = join(dir, 'out.pdf');
     await writeFile(inPath, buffer);
+    const pwPath = join(dir, 'pw');
+    await writeFile(pwPath, password, { mode: 0o600 });
     try {
-      await execFileAsync('qpdf', ['--password=' + password, '--decrypt', '--', inPath, outPath]);
+      await execFileAsync('qpdf', [`--password-file=${pwPath}`, '--decrypt', '--', inPath, outPath]);
     } catch (err) {
       throw new Error('Could not unlock the PDF — check the password is correct.');
     }

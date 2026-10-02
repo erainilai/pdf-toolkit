@@ -1,6 +1,8 @@
-import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, degrees, rgb } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
+import { embedFonts, textWidth, drawText, lineHeight } from './fonts.js';
+import { toEmbeddable } from './imageOps.js';
 
 /** Parses "1-3,5,8-10" into a sorted, de-duplicated list of 0-based page indices. */
 export function parsePageRanges(spec, pageCount) {
@@ -117,18 +119,27 @@ const POSITIONS = {
 
 export async function addWatermark(buffer, { text, opacity = 0.3, rotation = -45, fontSize = 48, color = '#ff0000', position = 'center' }) {
   const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const { bold } = await embedFonts(pdf);
   const col = hexToRgb(color);
+  const size = Number(fontSize) || 48;
   for (const page of pdf.getPages()) {
     const { width, height } = page.getSize();
-    const textWidth = font.widthOfTextAtSize(text, fontSize);
-    const textHeight = font.heightAtSize(fontSize);
-    const posFn = POSITIONS[position] || POSITIONS.center;
-    let { x, y } = posFn(width, height, textWidth, textHeight);
-    if (y === null) y = height - textHeight - 24;
-    page.drawText(text, {
-      x, y, size: fontSize, font, color: rgb(col.r, col.g, col.b), opacity,
-      rotate: degrees(rotation),
+    const tw = textWidth(bold, text, size);
+    const th = lineHeight(bold, size);
+    const rot = Number(rotation ?? -45);
+    let x, y;
+    if (!POSITIONS[position] || position === 'center') {
+      // Rotate around the page centre so diagonal watermarks stay centred on the page.
+      const a = (rot * Math.PI) / 180;
+      x = width / 2 - (tw / 2) * Math.cos(a) + (th / 3) * Math.sin(a);
+      y = height / 2 - (tw / 2) * Math.sin(a) - (th / 3) * Math.cos(a);
+    } else {
+      ({ x, y } = POSITIONS[position](width, height, tw, th));
+      if (y === null) y = height - th - 24;
+    }
+    drawText(page, bold, text, {
+      x, y, size, color: rgb(col.r, col.g, col.b), opacity: Number(opacity ?? 0.3),
+      rotate: degrees(rot),
     });
   }
   return pdf.save();
@@ -136,27 +147,29 @@ export async function addWatermark(buffer, { text, opacity = 0.3, rotation = -45
 
 export async function addPageNumbers(buffer, { position = 'bottom-right', startAt = 1, format = '{n}', fontSize = 11 }) {
   const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true });
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const { regular } = await embedFonts(pdf);
   const pages = pdf.getPages();
   const total = pages.length;
+  const size = Number(fontSize) || 11;
   pages.forEach((page, i) => {
-    const n = startAt + i;
-    const text = format.replace('{n}', n).replace('{total}', total);
-    const { width } = page.getSize();
-    const textWidth = font.widthOfTextAtSize(text, fontSize);
+    const n = (Number(startAt) || 1) + i;
+    const text = String(format).replaceAll('{n}', n).replaceAll('{total}', total);
+    const { width, height } = page.getSize();
+    const tw = textWidth(regular, text, size);
     let x;
     if (position.endsWith('left')) x = 24;
-    else if (position.endsWith('right')) x = width - textWidth - 24;
-    else x = (width - textWidth) / 2;
-    const y = position.startsWith('top') ? page.getSize().height - 30 : 20;
-    page.drawText(text, { x, y, size: fontSize, font, color: rgb(0.2, 0.2, 0.2) });
+    else if (position.endsWith('right')) x = width - tw - 24;
+    else x = (width - tw) / 2;
+    const y = position.startsWith('top') ? height - 30 : 20;
+    drawText(page, regular, text, { x, y, size, color: rgb(0.2, 0.2, 0.2) });
   });
   return pdf.save();
 }
 
 export async function imagesToPdf(images, { pageSize = 'fit' } = {}) {
   const pdf = await PDFDocument.create();
-  for (const img of images) {
+  for (const original of images) {
+    const img = await toEmbeddable(original); // WebP/HEIC/TIFF/GIF → JPG/PNG, EXIF rotation applied
     const isPng = img.mimetype === 'image/png';
     const embedded = isPng ? await pdf.embedPng(img.buffer) : await pdf.embedJpg(img.buffer);
     const { width, height } = embedded;
@@ -199,13 +212,17 @@ export async function pdfToImages(buffer, { format = 'png', scale = 2 } = {}) {
   return results;
 }
 
-export async function renderThumbnails(buffer, { maxWidth = 160 } = {}) {
+export async function renderThumbnails(buffer, { maxWidth = 160, maxPages = Infinity } = {}) {
   const loadingTask = pdfjsLib.getDocument({
     data: new Uint8Array(buffer),
     standardFontDataUrl: new URL('../../node_modules/pdfjs-dist/standard_fonts/', import.meta.url).href,
     isEvalSupported: false,
   });
   const doc = await loadingTask.promise;
+  if (doc.numPages > maxPages) {
+    await loadingTask.destroy();
+    throw new Error(`This PDF has ${doc.numPages} pages; visual organizing supports up to ${maxPages}. Use Extract/Remove pages instead.`);
+  }
   const thumbs = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);

@@ -149,3 +149,15 @@ export function usageSummary(apiKeyId, sinceDays = 30) {
   ).get(apiKeyId, since);
   return { sinceDays, totals, byTool };
 }
+
+/** Finished jobs whose files are past the retention window. */
+export function jobsToExpire(olderThanIso) {
+  return db.prepare(
+    "SELECT id FROM jobs WHERE status IN ('completed','failed') AND updated_at < ?"
+  ).all(olderThanIso);
+}
+
+export function markJobExpired(id) {
+  db.prepare("UPDATE jobs SET status = 'expired', result_files = NULL, updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), id);
+}

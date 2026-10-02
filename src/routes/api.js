@@ -8,10 +8,17 @@ import {
   rotatePages, organizePages, addWatermark, addPageNumbers, imagesToPdf,
   pdfToImages, renderThumbnails, extractText, compressPdfBasic,
 } from '../lib/pdfOps.js';
+import { TOOLS, minFilesFor } from '../lib/jobRegistry.js';
+import { compressPdfImages } from '../lib/compress.js';
+import { createIpRateLimiter } from '../middleware/rateLimiter.js';
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
+export const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 100);
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 50 } });
 
 const router = Router();
+
+// The browser UI is unauthenticated, so it gets a per-IP limit (WEB_RATE_LIMIT_MAX per minute).
+router.use(createIpRateLimiter());
 
 const asHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
 
@@ -35,9 +42,11 @@ router.get('/system-info', asHandler(async (req, res) => {
   res.json({
     qpdf: tools.qpdf,
     ghostscript: tools.ghostscript,
+    libreoffice: tools.libreoffice,
     notes: {
-      qpdf: tools.qpdf ? null : "Install with 'brew install qpdf' to enable Protect/Unlock.",
-      ghostscript: tools.ghostscript ? null : "Install with 'brew install ghostscript' for stronger compression.",
+      qpdf: tools.qpdf ? null : "Install qpdf ('brew install qpdf') to enable Protect/Unlock.",
+      ghostscript: null, // optional: built-in image recompression covers most cases
+      libreoffice: tools.libreoffice ? null : "Install LibreOffice ('brew install --cask libreoffice') to enable Office ↔ PDF.",
     },
   });
 }));
@@ -87,7 +96,7 @@ router.post('/organize', upload.single('file'), asHandler(async (req, res) => {
 
 router.post('/thumbnails', upload.single('file'), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
-  const thumbs = await renderThumbnails(req.file.buffer);
+  const thumbs = await renderThumbnails(req.file.buffer, { maxPages: Number(process.env.MAX_THUMBNAIL_PAGES || 300) });
   res.json({ thumbs });
 }));
 
@@ -143,9 +152,20 @@ router.post('/pdf-to-text', upload.single('file'), asHandler(async (req, res) =>
 
 router.post('/compress', upload.single('file'), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
-  const strong = await compressPdfStrong(req.file.buffer, req.body.quality || 'ebook');
-  const bytes = strong || await compressPdfBasic(req.file.buffer);
-  res.set('X-Compression-Mode', strong ? 'ghostscript' : 'basic');
+  const quality = req.body.quality || 'ebook';
+  const strong = await compressPdfStrong(req.file.buffer, quality);
+  let bytes = strong;
+  let mode = 'ghostscript';
+  if (!bytes) {
+    const r = await compressPdfImages(req.file.buffer, quality);
+    bytes = r.bytes; mode = `images:${r.imagesRecompressed}`;
+    if (bytes.length >= req.file.buffer.length) {
+      const basic = await compressPdfBasic(req.file.buffer);
+      bytes = basic.length < req.file.buffer.length ? basic : req.file.buffer;
+      mode = 'basic';
+    }
+  }
+  res.set('X-Compression-Mode', mode);
   const originalSize = req.file.buffer.length;
   const newSize = bytes.length;
   res.set('X-Original-Size', String(originalSize));
@@ -165,6 +185,37 @@ router.post('/unlock', upload.single('file'), asHandler(async (req, res) => {
   if (!req.body.password) return res.status(400).json({ error: 'Password is required.' });
   const bytes = await unlockPdf(req.file.buffer, req.body.password);
   sendPdf(res, bytes, 'unlocked.pdf');
+}));
+
+/** Generic synchronous endpoint for every tool in the registry (the tools added after the
+ *  original 14 have no hand-written route). Options come from form fields, or from a single
+ *  JSON "options" field. One output file is returned as-is; several are zipped. */
+const MIME = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif',
+  txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+
+router.post('/tool/:tool', upload.array('files', 50), asHandler(async (req, res) => {
+  const { tool } = req.params;
+  const handler = TOOLS[tool];
+  if (!handler) return res.status(404).json({ error: `Unknown tool "${tool}".` });
+  const files = req.files || [];
+  const min = minFilesFor(tool);
+  if (files.length < min) return res.status(400).json({ error: min > 1 ? `Upload at least ${min} files.` : 'Upload a file first.' });
+  let options = { ...req.body };
+  if (typeof req.body.options === 'string') {
+    try { options = JSON.parse(req.body.options); } catch { return res.status(400).json({ error: '"options" must be valid JSON.' }); }
+  }
+  const outputs = await handler(files, options);
+  if (outputs.length === 1) {
+    const [out] = outputs;
+    const ext = out.name.split('.').pop().toLowerCase();
+    res.set('Content-Type', MIME[ext] || 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(out.name)}"; filename*=UTF-8''${encodeURIComponent(out.name)}`);
+    return res.send(Buffer.from(out.bytes));
+  }
+  sendZip(res, outputs, `${tool}.zip`);
 }));
 
 export default router;

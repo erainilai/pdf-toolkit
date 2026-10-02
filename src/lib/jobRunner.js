@@ -1,4 +1,4 @@
-import { getObject, putObject, sanitizeKeySegment } from './storage.js';
+import { getObject, putObject, sanitizeKeySegment, deletePrefix } from './storage.js';
 import { updateJobStatus, recordUsage } from './db.js';
 import { TOOLS } from './jobRegistry.js';
 import { reportJobUsage } from './billing.js';
@@ -38,5 +38,8 @@ export async function runJob({ id, tool, options, inputKeys, originalNames, mime
   } catch (err) {
     updateJobStatus(id, 'failed', { error: err.message });
     throw err;
+  } finally {
+    // Inputs are never needed again once the job has run — delete them right away.
+    await deletePrefix(`jobs/${id}/input/`).catch(() => {});
   }
 }

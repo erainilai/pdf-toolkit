@@ -19,8 +19,8 @@ let cache = null;
  *  app runs fully without them — callers should check availability and degrade gracefully. */
 export async function detectSystemTools() {
   if (cache) return cache;
-  const [qpdf, ghostscript] = await Promise.all([which('qpdf'), which('gs')]);
-  cache = { qpdf, ghostscript };
+  const [qpdf, ghostscript, libreoffice] = await Promise.all([which('qpdf'), which('gs'), which(process.env.SOFFICE_PATH || 'soffice')]);
+  cache = { qpdf, ghostscript, libreoffice };
   return cache;
 }
 

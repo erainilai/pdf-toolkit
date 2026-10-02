@@ -5,3 +5,4 @@ tmp/
 .claude/
 *.log
 .env
+models/

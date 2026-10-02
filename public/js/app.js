@@ -1,3 +1,25 @@
+import * as examPhoto from './tools/examPhoto.js';
+import * as tamilFont from './tools/tamilFont.js';
+import * as gstInvoice from './tools/gstInvoice.js';
+
+const CUSTOM = { 'exam-photo': examPhoto, 'tamil-font': tamilFont, 'gst-invoice': gstInvoice };
+
+const CATEGORIES = [
+  ['popular', 'Popular in India'],
+  ['pdf', 'Organize & edit PDF'],
+  ['convert', 'Convert'],
+  ['image', 'Images'],
+  ['tamil', 'Tamil'],
+  ['data', 'Spreadsheets & business'],
+  ['security', 'Security'],
+];
+const CATEGORY_OF = {
+  merge: 'pdf', split: 'pdf', 'remove-pages': 'pdf', 'extract-pages': 'pdf', rotate: 'pdf', organize: 'pdf',
+  watermark: 'pdf', 'page-numbers': 'pdf', compress: 'pdf',
+  'images-to-pdf': 'convert', 'pdf-to-images': 'convert', 'pdf-to-text': 'convert',
+  protect: 'security', unlock: 'security',
+};
+
 const TOOLS = [
   {
     id: 'merge', icon: '🔗', name: 'Merge PDF', desc: 'Combine multiple PDFs into one file, in the order you add them.',
@@ -64,8 +86,8 @@ const TOOLS = [
     ],
   },
   {
-    id: 'images-to-pdf', icon: '🖼️', name: 'Images to PDF', desc: 'Combine JPG/PNG images into a single PDF.',
-    accept: '.jpg,.jpeg,.png', multiple: true, minFiles: 1, endpoint: '/api/images-to-pdf', fileField: 'files',
+    id: 'images-to-pdf', icon: '🖼️', name: 'Images to PDF', desc: 'Combine JPG, PNG, WebP or iPhone HEIC photos into a single PDF.',
+    accept: 'image/*,.heic', multiple: true, minFiles: 1, endpoint: '/api/images-to-pdf', fileField: 'files',
     fields: [{ name: 'pageSize', label: 'Page size', type: 'select', options: [['fit', 'Fit to image'], ['a4', 'A4']], default: 'fit' }],
   },
   {
@@ -81,9 +103,9 @@ const TOOLS = [
     accept: '.pdf', multiple: false, endpoint: '/api/pdf-to-text', fileField: 'file',
   },
   {
-    id: 'compress', icon: '🗜️', name: 'Compress PDF', desc: 'Shrink file size. Stronger compression if Ghostscript is installed.',
+    id: 'compress', icon: '🗜️', name: 'Compress PDF', desc: 'Shrink scanned and photo-heavy PDFs by re-compressing their images.',
     accept: '.pdf', multiple: false, endpoint: '/api/compress', fileField: 'file',
-    fields: [{ name: 'quality', label: 'Quality (used if Ghostscript is installed)', type: 'select', options: [['screen', 'Smallest (screen)'], ['ebook', 'Balanced (ebook)'], ['printer', 'High quality (printer)']], default: 'ebook' }],
+    fields: [{ name: 'quality', label: 'Compression level', type: 'select', options: [['screen', 'Smallest (screen)'], ['ebook', 'Balanced (ebook)'], ['printer', 'High quality (printer)']], default: 'ebook' }],
   },
   {
     id: 'protect', icon: '🔒', name: 'Protect PDF', desc: 'Add a password to encrypt a PDF. Requires qpdf installed.',
@@ -94,6 +116,75 @@ const TOOLS = [
     id: 'unlock', icon: '🔓', name: 'Unlock PDF', desc: 'Remove a known password from a PDF. Requires qpdf installed.',
     accept: '.pdf', multiple: false, endpoint: '/api/unlock', fileField: 'file',
     fields: [{ name: 'password', label: 'Current password', type: 'password', required: true }],
+  },
+
+  /* ---- Added tools (served by the generic /api/tool/:name route) ---- */
+  {
+    id: 'exam-photo', category: 'popular', icon: '🪪', name: 'Exam Photo & Signature', desc: 'Resize to exact TNPSC, SSC, IBPS, UPSC or passport size and KB limit. Runs in your browser.',
+    accept: 'image/*,.heic', multiple: false, custom: 'exam-photo', submitLabel: 'Get resized photo',
+  },
+  {
+    id: 'ocr', category: 'tamil', icon: '🔍', name: 'Tamil OCR', desc: 'Turn scanned Tamil/English pages or photos into editable text and a searchable PDF.',
+    accept: '.pdf,image/*', multiple: true, endpoint: '/api/tool/ocr', fileField: 'files',
+    fields: [
+      { name: 'lang', label: 'Language', type: 'select', options: [['tam+eng', 'Tamil + English'], ['tam', 'Tamil'], ['eng', 'English']], default: 'tam+eng' },
+      { name: 'output', label: 'Output', type: 'select', options: [['both', 'Searchable PDF + text (zip)'], ['pdf', 'Searchable PDF'], ['text', 'Text file']], default: 'both' },
+    ],
+  },
+  {
+    id: 'tamil-font', category: 'tamil', icon: 'அ', name: 'Tamil Font Converter', desc: 'Bamini / SunTommy ↔ Unicode. Fix old Tamil documents that show as English letters.',
+    custom: 'tamil-font', noUpload: true, noSubmit: true,
+  },
+  {
+    id: 'office-to-pdf', category: 'popular', icon: '📄', name: 'Word / Excel / PPT to PDF', desc: 'Convert DOCX, XLSX, PPTX, ODT and more to PDF.',
+    accept: '.doc,.docx,.odt,.rtf,.txt,.xls,.xlsx,.ods,.csv,.ppt,.pptx,.odp', multiple: true, endpoint: '/api/tool/office-to-pdf', fileField: 'files',
+  },
+  {
+    id: 'pdf-to-word', category: 'convert', icon: '📝', name: 'PDF to Word', desc: 'Editable DOCX with layout kept. Best for small text changes.',
+    accept: '.pdf', multiple: false, endpoint: '/api/tool/pdf-to-word', fileField: 'files',
+  },
+  {
+    id: 'pdf-to-powerpoint', category: 'convert', icon: '📊', name: 'PDF to PowerPoint', desc: 'Each PDF page becomes a slide.',
+    accept: '.pdf', multiple: false, endpoint: '/api/tool/pdf-to-powerpoint', fileField: 'files',
+  },
+  {
+    id: 'remove-background', category: 'image', icon: '✨', name: 'Remove Background', desc: 'Cut out the subject. Transparent PNG, or a white background for ID photos.',
+    accept: 'image/*,.heic', multiple: true, endpoint: '/api/tool/remove-background', fileField: 'files',
+    fields: [{ name: 'background', label: 'Background', type: 'select', options: [['', 'Transparent (PNG)'], ['#ffffff', 'White (JPG)'], ['#dbe9ff', 'Light blue (JPG)']], default: '' }],
+  },
+  {
+    id: 'convert-image', category: 'image', icon: '🖼️', name: 'Convert & Compress Images', desc: 'JPG, PNG, WebP, AVIF, HEIC (iPhone). Resize and shrink in bulk.',
+    accept: 'image/*,.heic', multiple: true, endpoint: '/api/tool/convert-image', fileField: 'files',
+    fields: [
+      { name: 'format', label: 'Convert to', type: 'select', options: [['jpg', 'JPG'], ['png', 'PNG'], ['webp', 'WebP'], ['avif', 'AVIF']], default: 'jpg' },
+      { name: 'quality', label: 'Quality (1-100)', type: 'number', default: 80, min: 1, max: 100 },
+      { name: 'width', label: 'Max width in px (optional)', type: 'number', min: 1 },
+      { name: 'height', label: 'Max height in px (optional)', type: 'number', min: 1 },
+    ],
+  },
+  {
+    id: 'gst-invoice', category: 'popular', icon: '🧾', name: 'GST Invoice Generator', desc: 'Tax invoice with CGST/SGST or IGST, HSN, amount in words. Tamil supported.',
+    custom: 'gst-invoice', noUpload: true, endpoint: '/api/tool/gst-invoice', submitLabel: 'Create invoice PDF',
+  },
+  {
+    id: 'sheet-clean', category: 'data', icon: '🧹', name: 'Clean Excel / CSV', desc: 'Trim spaces, drop empty rows and columns, remove duplicates.',
+    accept: '.xlsx,.csv,.json', multiple: false, endpoint: '/api/tool/sheet-clean', fileField: 'files',
+    fields: [
+      { name: 'trim', label: 'Trim extra spaces', type: 'checkbox', default: true },
+      { name: 'removeEmpty', label: 'Remove empty rows and columns', type: 'checkbox', default: true },
+      { name: 'dedupe', label: 'Remove duplicate rows', type: 'checkbox', default: true },
+      { name: 'dedupeColumns', label: 'Duplicate check on columns (optional, comma-separated headers)', type: 'text', placeholder: 'Name, Phone', showIf: { dedupe: true } },
+    ],
+  },
+  {
+    id: 'sheet-convert', category: 'data', icon: '🔁', name: 'Excel ↔ CSV ↔ JSON', desc: 'Convert spreadsheets between XLSX, CSV and JSON. Tamil text kept intact.',
+    accept: '.xlsx,.csv,.json', multiple: false, endpoint: '/api/tool/sheet-convert', fileField: 'files',
+    fields: [{ name: 'format', label: 'Convert to', type: 'select', options: [['xlsx', 'Excel (XLSX)'], ['csv', 'CSV'], ['json', 'JSON']], default: 'xlsx' }],
+  },
+  {
+    id: 'sheet-merge', category: 'data', icon: '🗂️', name: 'Merge Excel / CSV', desc: 'Combine files into one sheet (columns matched by header) or one workbook.',
+    accept: '.xlsx,.csv,.json', multiple: true, minFiles: 2, endpoint: '/api/tool/sheet-merge', fileField: 'files',
+    fields: [{ name: 'mode', label: 'Merge into', type: 'select', options: [['rows', 'One sheet (stack rows)'], ['sheets', 'One workbook, one sheet per file']], default: 'rows' }],
   },
 ];
 
@@ -110,6 +201,7 @@ const dropzone = document.getElementById('dropzone');
 const fileInput = document.getElementById('fileInput');
 const fileListEl = document.getElementById('fileList');
 const optionsArea = document.getElementById('optionsArea');
+const customArea = document.getElementById('customArea');
 const organizeArea = document.getElementById('organizeArea');
 const submitBtn = document.getElementById('submitBtn');
 const statusArea = document.getElementById('statusArea');
@@ -118,15 +210,25 @@ const resultArea = document.getElementById('resultArea');
 let currentTool = null;
 let selectedFiles = [];
 let organizeState = null; // { thumbs: [{page, dataUrl}], order: [page,...] }
+let customModule = null;   // mounted module for tools with their own UI (exam photo, Tamil font, invoice)
 
 function renderGrid() {
   toolGrid.innerHTML = '';
-  for (const tool of TOOLS) {
-    const card = document.createElement('div');
-    card.className = 'tool-card';
-    card.innerHTML = `<span class="icon">${tool.icon}</span><div class="name">${tool.name}</div><div class="desc">${tool.desc}</div>`;
-    card.addEventListener('click', () => openTool(tool));
-    toolGrid.appendChild(card);
+  for (const [cat, title] of CATEGORIES) {
+    const tools = TOOLS.filter((t) => (t.category || CATEGORY_OF[t.id]) === cat);
+    if (!tools.length) continue;
+    const section = document.createElement('section');
+    section.className = 'category';
+    section.innerHTML = `<h3>${title}</h3><div class="grid"></div>`;
+    const grid = section.querySelector('.grid');
+    for (const tool of tools) {
+      const card = document.createElement('div');
+      card.className = 'tool-card';
+      card.innerHTML = `<span class="icon">${tool.icon}</span><div class="name">${tool.name}</div><div class="desc">${tool.desc}</div>`;
+      card.addEventListener('click', () => openTool(tool));
+      grid.appendChild(card);
+    }
+    toolGrid.appendChild(section);
   }
 }
 
@@ -136,7 +238,7 @@ async function loadSystemInfo() {
     const info = await res.json();
     const warnings = [];
     if (!info.qpdf) warnings.push(info.notes.qpdf);
-    if (!info.ghostscript) warnings.push(info.notes.ghostscript);
+    if (!info.libreoffice) warnings.push(info.notes.libreoffice);
     sysNote.innerHTML = warnings.length
       ? `<span class="warn">Optional tools missing:</span> ${warnings.join(' ')}`
       : 'All optional tools detected — every feature is fully enabled.';
@@ -163,8 +265,43 @@ function openTool(tool) {
   dropzone.classList.remove('hidden');
   organizeArea.classList.add('hidden');
   organizeArea.innerHTML = '';
+  dropzone.classList.toggle('hidden', !!tool.noUpload);
+  submitBtn.classList.toggle('hidden', !!tool.noSubmit);
+  submitBtn.textContent = tool.submitLabel || 'Process';
+  customArea.innerHTML = '';
+  customArea.classList.toggle('hidden', !CUSTOM[tool.custom]);
+  customModule = CUSTOM[tool.custom] || null;
+  customModule?.mount(customArea, {
+    setStatus,
+    showDownload,
+    updateSubmitState,
+    getFiles: () => selectedFiles,
+  });
   renderOptions();
   updateSubmitState();
+}
+
+function setStatus(text, kind = '') {
+  statusArea.className = `status-area ${kind}`.trim();
+  statusArea.textContent = text;
+}
+
+function showDownload(blob, filename, extra) {
+  const url = URL.createObjectURL(blob);
+  resultArea.innerHTML = '';
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.className = 'download-link';
+  link.textContent = `⬇ Download ${filename}`;
+  resultArea.appendChild(link);
+  if (extra) {
+    const info = document.createElement('div');
+    info.className = 'hint';
+    info.style.marginTop = '8px';
+    info.textContent = extra;
+    resultArea.appendChild(info);
+  }
 }
 
 function goHome() {
@@ -193,6 +330,7 @@ function handleFiles(files) {
   renderFileList();
   updateSubmitState();
   if (currentTool.custom === 'organize' && selectedFiles.length) fetchThumbnails();
+  customModule?.onFiles?.(selectedFiles);
 }
 
 function renderFileList() {
@@ -206,6 +344,7 @@ function renderFileList() {
       selectedFiles.splice(i, 1);
       renderFileList();
       updateSubmitState();
+      customModule?.onFiles?.(selectedFiles);
     });
     fileListEl.appendChild(chip);
   });
@@ -241,6 +380,21 @@ function renderOptions() {
         input.placeholder = f.placeholder || '';
         input.value = state[f.name] || '';
         input.style = 'background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px;font-family:inherit;';
+      } else if (f.type === 'checkbox') {
+        wrap.className = 'field check';
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = `f_${f.name}`;
+        input.checked = state[f.name] === true || state[f.name] === 'true';
+        label.htmlFor = input.id;
+        wrap.prepend(input);
+        input.addEventListener('change', () => {
+          state[f.name] = input.checked;
+          render();
+          updateSubmitState();
+        });
+        optionsArea.appendChild(wrap);
+        continue;
       } else {
         input = document.createElement('input');
         input.type = f.type;
@@ -264,7 +418,8 @@ function renderOptions() {
 }
 
 function updateSubmitState() {
-  let ok = selectedFiles.length > 0;
+  if (!currentTool) return;
+  let ok = currentTool.noUpload ? true : selectedFiles.length > 0;
   if (currentTool.minFiles) ok = ok && selectedFiles.length >= currentTool.minFiles;
   if (currentTool.fields) {
     for (const f of currentTool.fields) {
@@ -272,6 +427,7 @@ function updateSubmitState() {
     }
   }
   if (currentTool.custom === 'organize') ok = !!organizeState;
+  if (customModule?.isReady) ok = ok && customModule.isReady();
   submitBtn.disabled = !ok;
 }
 
@@ -333,15 +489,21 @@ submitBtn.addEventListener('click', async () => {
   statusArea.textContent = 'Processing…';
   resultArea.innerHTML = '';
   try {
+    if (customModule?.submit) {
+      await customModule.submit();
+      return;
+    }
     const body = new FormData();
-    if (currentTool.custom === 'organize') {
+    if (customModule?.buildBody) {
+      customModule.buildBody(body);
+    } else if (currentTool.custom === 'organize') {
       body.set('file', selectedFiles[0]);
       body.set('order', JSON.stringify(organizeState.order));
     } else {
       if (currentTool.multiple) {
         for (const f of selectedFiles) body.append(currentTool.fileField, f);
       } else {
-        body.set(currentTool.fileField, selectedFiles[0]);
+        if (selectedFiles[0]) body.set(currentTool.fileField, selectedFiles[0]);
       }
       const form = currentTool._formState || {};
       if (currentTool.buildBody) {
@@ -359,8 +521,9 @@ submitBtn.addEventListener('click', async () => {
     }
     const blob = await res.blob();
     const disposition = res.headers.get('Content-Disposition') || '';
+    const star = disposition.match(/filename\*=UTF-8''([^;]+)/);
     const match = disposition.match(/filename="(.+?)"/);
-    const filename = match ? match[1] : 'output';
+    const filename = star ? decodeURIComponent(star[1]) : match ? decodeURIComponent(match[1]) : 'output';
     const url = URL.createObjectURL(blob);
     resultArea.innerHTML = '';
     const link = document.createElement('a');
