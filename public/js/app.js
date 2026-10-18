@@ -253,7 +253,7 @@ function openTool(tool) {
   organizeState = null;
   homeView.classList.add('hidden');
   toolView.classList.remove('hidden');
-  toolTitle.textContent = `${tool.icon} ${tool.name}`;
+  toolTitle.innerHTML = `<span class="tool-icon-badge">${tool.icon}</span>${tool.name}`;
   toolDesc.textContent = tool.desc;
   fileInput.value = '';
   fileInput.accept = tool.accept;
