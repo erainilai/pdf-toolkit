@@ -42,6 +42,32 @@ const SCHEMA = (autoId) => `
   CREATE INDEX IF NOT EXISTS idx_jobs_status_updated ON jobs(status, updated_at);
   CREATE INDEX IF NOT EXISTS idx_usage_api_key ON usage_events(api_key_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_api_keys_stripe_customer ON api_keys(stripe_customer_id);
+
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    password_hash TEXT NOT NULL,
+    country TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE TABLE IF NOT EXISTS entitlements (
+    id ${autoId},
+    user_id TEXT NOT NULL,
+    plan TEXT NOT NULL,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    payment_id TEXT UNIQUE,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_entitlements_user ON entitlements(user_id, ends_at);
 `;
 
 async function migrate(b) {
@@ -138,3 +164,56 @@ export const jobsToExpire = (olderThanIso) =>
 
 export const markJobExpired = (id) =>
   run("UPDATE jobs SET status = 'expired', result_files = NULL, updated_at = ? WHERE id = ?", [now(), id]);
+
+/* ---------------- Users & sessions ---------------- */
+
+export async function createUser({ email, name, passwordHash, country }) {
+  const id = randomUUID();
+  await run('INSERT INTO users (id, email, name, password_hash, country, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, email, name || null, passwordHash, country || null, now()]);
+  return getUserById(id);
+}
+export const getUserById = (id) => get('SELECT * FROM users WHERE id = ?', [id]);
+export const getUserByEmail = (email) => get('SELECT * FROM users WHERE email = ?', [email]);
+
+export async function createSession(userId, ttlDays) {
+  const token = randomBytes(32).toString('base64url');
+  const expires = new Date(Date.now() + ttlDays * 86_400_000).toISOString();
+  await run('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', [sha256(token), userId, now(), expires]);
+  return { token, expires };
+}
+export async function getSessionUser(token) {
+  const row = await get(
+    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?`,
+    [sha256(token), now()]);
+  return row || null;
+}
+export const deleteSession = (token) => run('DELETE FROM sessions WHERE token_hash = ?', [sha256(token)]);
+export const deleteExpiredSessions = () => run('DELETE FROM sessions WHERE expires_at < ?', [now()]);
+
+/* ---------------- Entitlements ---------------- */
+
+/** Grants a plan period for a payment. Idempotent: payment_id is UNIQUE, so a webhook and the
+ *  browser confirmation racing each other (or a retried webhook) grant exactly once. New
+ *  periods stack on top of any time the user already has left on the same plan. */
+export async function grantEntitlement({ userId, plan, days, paymentId }) {
+  const existing = await get('SELECT id FROM entitlements WHERE payment_id = ?', [paymentId]);
+  if (existing) return false;
+  const latest = await get('SELECT MAX(ends_at) AS "endsAt" FROM entitlements WHERE user_id = ? AND plan = ? AND ends_at > ?', [userId, plan, now()]);
+  const start = latest?.endsAt ? new Date(latest.endsAt) : new Date();
+  const end = new Date(start.getTime() + days * 86_400_000);
+  const rows = await all(
+    `INSERT INTO entitlements (user_id, plan, starts_at, ends_at, payment_id, created_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (payment_id) DO NOTHING RETURNING id`,
+    [userId, plan, start.toISOString(), end.toISOString(), paymentId, now()]);
+  return rows.length > 0;
+}
+
+/** Active plans for a user with the end of each plan's (stacked, back-to-back) periods —
+ *  e.g. a yearly renewal bought before the monthly ran out shows the yearly end date. */
+export async function activeEntitlements(userId) {
+  const t = now();
+  return all(
+    `SELECT plan, MIN(starts_at) AS starts_at, MAX(ends_at) AS ends_at FROM entitlements
+     WHERE user_id = ? AND ends_at > ? GROUP BY plan HAVING MIN(starts_at) <= ? ORDER BY 3 DESC`, [userId, t, t]);
+}

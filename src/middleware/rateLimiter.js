@@ -70,3 +70,23 @@ export function createIpRateLimiter() {
     (await ipLimiterPromise)(req, res, next);
   };
 }
+
+/** Generic limiter factory (Redis-backed when REDIS_URL is set) for sensitive endpoints such
+ *  as sign-in and checkout. */
+export function createNamedLimiter({ name, windowMs, max, message, keyGenerator }) {
+  let p;
+  return async (req, res, next) => {
+    if (!p) {
+      p = (async () => {
+        const redisClient = await getRedisClient();
+        let store;
+        if (redisClient) {
+          const { RedisStore } = await import('rate-limit-redis');
+          store = new RedisStore({ prefix: `rl:${name}:`, sendCommand: (...args) => redisClient.call(...args) });
+        }
+        return rateLimit({ windowMs, max, standardHeaders: true, legacyHeaders: false, store, keyGenerator, message: { error: message } });
+      })();
+    }
+    (await p)(req, res, next);
+  };
+}

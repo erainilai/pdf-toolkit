@@ -5,6 +5,8 @@ import multer from 'multer';
 import apiRouter from './src/routes/api.js';
 import v1Router from './src/routes/v1.js';
 import stripeWebhookRouter from './src/routes/stripeWebhook.js';
+import accountRouter from './src/routes/account.js';
+import { sessionContext, sameOriginOnly } from './src/middleware/session.js';
 import { initDb } from './src/lib/db.js';
 import { queueMode } from './src/lib/queue.js';
 import { storageBackend } from './src/lib/storage.js';
@@ -22,10 +24,14 @@ app.use(securityHeaders);
 
 app.get('/healthz', (req, res) => res.json({ ok: true, queueMode, storage: storageBackend(), billingEnabled: billingEnabled() }));
 app.use(express.static(join(__dirname, 'public')));
-app.use('/api', apiRouter);
 // Mounted before the authenticated v1 router — Stripe calls this directly, with no API key.
 app.use('/api/v1/stripe', stripeWebhookRouter);
 app.use('/api/v1', v1Router);
+
+// Browser app API: cookie session → origin check → routes.
+app.use('/api', sessionContext, sameOriginOnly);
+app.use('/api', accountRouter);
+app.use('/api', apiRouter);
 
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
