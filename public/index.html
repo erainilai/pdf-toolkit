@@ -3,66 +3,63 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PDF Toolkit — everyday document tools</title>
-<link rel="stylesheet" href="/css/style.css">
+<title>PDF Toolkit — PDF, Office, image and Tamil document tools</title>
+<meta name="description" content="Merge, compress and convert PDFs, resize exam photos, read scanned Tamil, convert Bamini fonts and make GST invoices — in your browser.">
+<meta name="theme-color" content="#0a0e1a">
+<link rel="stylesheet" href="/css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='5' fill='%235865f2'/%3E%3Cpath d='M10 9h8l4 4v10H10z' fill='%23fff'/%3E%3C/svg%3E">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand" id="homeLink">
-    <span class="brand-mark">📄</span>
-    <span class="brand-text">PDF Toolkit</span>
-  </div>
-  <div class="trust-badges">
-    <span class="badge">🔒 No accounts</span>
-    <span class="badge">⚡ Processed locally</span>
-    <span class="badge">🗑️ Auto-deleted after use</span>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="bar-inner">
+    <a class="brand" href="#/" aria-label="Home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="6"/><path d="M10 8h8.5L23 12.5V24H10z"/></svg>
+      <span data-brand>PDF Toolkit</span>
+    </a>
+    <nav class="suites" aria-label="Tool suites" id="suiteNav"></nav>
+    <div class="bar-actions">
+      <button class="search-trigger" id="searchTrigger" type="button" aria-label="Search tools">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="m13.5 13.5 4 4"/></svg>
+        <span>Find a tool</span><kbd>/</kbd>
+      </button>
+      <a class="link" href="#/pricing">Pricing</a>
+      <div id="accountSlot"></div>
+    </div>
   </div>
 </header>
 
-<main id="homeView">
-  <div class="hero">
-    <span class="eyebrow">All-in-one document suite</span>
-    <h1>Every document tool you need,<br><span class="accent-text">in one place</span></h1>
-    <p>PDF, Office, images, exam photos, Tamil OCR and fonts, GST invoices and spreadsheets. No accounts, nothing stored.</p>
-    <div class="hero-stats">
-      <div class="stat"><strong>20+</strong><span>Tools</span></div>
-      <div class="stat"><strong>0</strong><span>Files stored</span></div>
-      <div class="stat"><strong>100%</strong><span>Private</span></div>
+<main id="main" tabindex="-1"></main>
+
+<footer class="foot">
+  <div class="foot-inner">
+    <div>
+      <strong data-brand>PDF Toolkit</strong>
+      <p>Files are processed on our servers and deleted within an hour. Some tools run entirely in your browser.</p>
     </div>
+    <nav aria-label="Legal">
+      <a href="#/legal/terms">Terms</a>
+      <a href="#/legal/privacy">Privacy</a>
+      <a href="#/legal/refunds">Refunds &amp; cancellation</a>
+      <a href="#/legal/contact">Contact</a>
+      <a href="#/developers">API for developers</a>
+    </nav>
   </div>
-  <div id="toolGrid"></div>
-  <div class="sysnote" id="sysNote"></div>
-</main>
-
-<main id="toolView" class="hidden">
-  <button class="back" id="backBtn">&larr; All tools</button>
-  <div class="tool-panel">
-    <h2 id="toolTitle"></h2>
-    <p class="tool-desc" id="toolDesc"></p>
-
-    <div id="dropzone" class="dropzone">
-      <div class="dz-icon">⬆</div>
-      <p>Drag &amp; drop file(s) here, or click to choose</p>
-      <input type="file" id="fileInput" hidden>
-      <div id="fileList" class="file-list"></div>
-    </div>
-
-    <div id="optionsArea" class="options-area"></div>
-
-    <div id="customArea" class="custom-area hidden"></div>
-
-    <div id="organizeArea" class="organize-area hidden"></div>
-
-    <button id="submitBtn" class="primary-btn" disabled>Process</button>
-
-    <div id="statusArea" class="status-area"></div>
-    <div id="resultArea" class="result-area"></div>
-  </div>
-</main>
-
-<footer class="site-footer">
-  <p>PDF Toolkit — files are processed in memory and deleted immediately after. Nothing is uploaded to the cloud unless you run the hosted API.</p>
 </footer>
+
+<dialog id="searchDialog" class="search-dialog" aria-label="Find a tool">
+  <form method="dialog" class="search-box">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="m13.5 13.5 4 4"/></svg>
+    <input id="searchInput" type="search" placeholder="Try “jpg to pdf”, “tnpsc photo”, “bamini”…" autocomplete="off" aria-label="Search tools">
+  </form>
+  <ul id="searchResults" class="search-results" role="listbox"></ul>
+</dialog>
+
+<dialog id="authDialog" class="modal" aria-labelledby="authTitle"></dialog>
+<dialog id="upgradeDialog" class="modal" aria-labelledby="upgradeTitle"></dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="/js/app.js" type="module"></script>
 </body>
