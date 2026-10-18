@@ -51,7 +51,7 @@ async function getWorker(lang) {
 
 /** OCRs images or a (scanned) PDF. Returns text plus a searchable PDF (original page images
  *  with an invisible text layer — the format scanners produce). */
-export async function ocr(files, { lang = 'tam+eng' } = {}) {
+export async function ocr(files, { lang = 'tam+eng', maxPages } = {}) {
   if (!OCR_LANGS[lang]) throw new Error(`Unsupported language "${lang}". Use one of: ${Object.keys(OCR_LANGS).join(', ')}`);
   const pages = [];
   for (const f of files) {
@@ -63,8 +63,9 @@ export async function ocr(files, { lang = 'tam+eng' } = {}) {
     }
   }
   if (!pages.length) throw new Error('Nothing to OCR.');
-  if (pages.length > Number(process.env.OCR_MAX_PAGES || 50)) {
-    throw new Error(`Too many pages for OCR (max ${process.env.OCR_MAX_PAGES || 50}).`);
+  const cap = Math.min(Number(maxPages) || Infinity, Number(process.env.OCR_MAX_PAGES || 50));
+  if (pages.length > cap) {
+    throw new Error(`This file has ${pages.length} pages; your plan allows OCR on up to ${cap} pages per task.`);
   }
 
   const worker = await getWorker(lang);

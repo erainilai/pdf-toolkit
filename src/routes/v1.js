@@ -1,27 +1,18 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { randomUUID } from 'node:crypto';
 import { apiKeyAuth } from '../middleware/auth.js';
 import { requireHealthyBilling } from '../middleware/billingGate.js';
 import { createRateLimiter } from '../middleware/rateLimiter.js';
 import { TOOLS, minFilesFor } from '../lib/jobRegistry.js';
-import { createJob, getJobForKey, usageSummary } from '../lib/db.js';
-import { putObject, getObject, sanitizeKeySegment } from '../lib/storage.js';
-import { enqueueJob, queueMode } from '../lib/queue.js';
+import { getJobForKey, usageSummary } from '../lib/db.js';
+import { submitJob, jobView, sendJobFile } from '../lib/jobService.js';
+import { queueMode } from '../lib/queue.js';
 import { billingEnabled } from '../lib/stripe.js';
 import { createCheckoutSessionForKey, getInvoicePreview } from '../lib/billing.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 100) * 1024 * 1024, files: 50 } });
 const router = Router();
 const asHandler = (fn) => (req, res, next) => fn(req, res, next).catch(next);
-
-const CONTENT_TYPES = {
-  pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', avif: 'image/avif', zip: 'application/zip',
-  txt: 'text/plain; charset=utf-8', csv: 'text/csv; charset=utf-8', json: 'application/json',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-};
 
 router.use(apiKeyAuth, createRateLimiter());
 
@@ -73,53 +64,18 @@ router.post('/jobs', requireHealthyBilling, upload.array('files', 50), asHandler
     }
   }
 
-  const id = randomUUID();
-  const inputKeys = [];
-  const originalNames = [];
-  const mimetypes = [];
-  for (let i = 0; i < (req.files?.length || 0); i++) {
-    const file = req.files[i];
-    const key = `jobs/${id}/input/${i}-${sanitizeKeySegment(file.originalname)}`;
-    await putObject(key, file.buffer);
-    inputKeys.push(key);
-    originalNames.push(file.originalname);
-    mimetypes.push(file.mimetype);
-  }
-
-  await createJob({ id, apiKeyId: req.apiKey.id, tool });
-  await enqueueJob({ id, tool, options, inputKeys, originalNames, mimetypes, apiKeyId: req.apiKey.id });
-
+  const id = await submitJob({ ownerId: req.apiKey.id, tool, files: req.files || [], options });
   res.status(202).json({ id, status: 'queued', statusUrl: `/api/v1/jobs/${id}` });
 }));
 
 router.get('/jobs/:id', asHandler(async (req, res) => {
   const job = await getJobForKey(req.params.id, req.apiKey.id);
   if (!job) return res.status(404).json({ error: 'Job not found.' });
-
-  const result = { id: job.id, tool: job.tool, status: job.status, createdAt: job.created_at, updatedAt: job.updated_at };
-  if (job.status === 'failed') result.error = job.error;
-  if (job.status === 'expired') result.error = 'Result files were deleted after the retention period.';
-  if (job.status === 'completed') {
-    result.files = JSON.parse(job.result_files || '[]').map((f) => ({
-      name: f.name, size: f.size, url: `/api/v1/jobs/${job.id}/files/${encodeURIComponent(f.name)}`,
-    }));
-  }
-  res.json(result);
+  res.json(jobView(job, (j, name) => `/api/v1/jobs/${j.id}/files/${encodeURIComponent(name)}`));
 }));
 
 router.get('/jobs/:id/files/:name', asHandler(async (req, res) => {
-  const job = await getJobForKey(req.params.id, req.apiKey.id);
-  if (!job || job.status !== 'completed') return res.status(404).json({ error: 'File not found.' });
-
-  const files = JSON.parse(job.result_files || '[]');
-  const file = files.find((f) => f.name === req.params.name);
-  if (!file) return res.status(404).json({ error: 'File not found.' });
-
-  const buffer = await getObject(file.storageKey);
-  const ext = file.name.split('.').pop().toLowerCase();
-  res.set('Content-Type', CONTENT_TYPES[ext] || 'application/octet-stream');
-  res.set('Content-Disposition', `attachment; filename="${file.name}"`);
-  res.send(buffer);
+  await sendJobFile(res, { jobId: req.params.id, ownerId: req.apiKey.id, name: req.params.name });
 }));
 
 router.get('/usage', asHandler(async (req, res) => {

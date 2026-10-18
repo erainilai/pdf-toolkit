@@ -1,12 +1,12 @@
 import { getObject, putObject, sanitizeKeySegment, deletePrefix } from './storage.js';
-import { updateJobStatus, recordUsage } from './db.js';
+import { updateJobStatus, recordUsage, decrementDailyUsage } from './db.js';
 import { TOOLS } from './jobRegistry.js';
 import { reportJobUsage } from './billing.js';
 
 /** Executes one queued job: loads its inputs from storage, runs the tool, stores the
  *  outputs, and updates the job row. Called directly for inline (no-Redis) processing,
  *  and from src/worker.js for BullMQ-backed processing — same code, either path. */
-export async function runJob({ id, tool, options, inputKeys, originalNames, mimetypes, apiKeyId }) {
+export async function runJob({ id, tool, options, inputKeys, originalNames, mimetypes, apiKeyId, quota }) {
   await updateJobStatus(id, 'processing');
   try {
     const handler = TOOLS[tool];
@@ -37,6 +37,8 @@ export async function runJob({ id, tool, options, inputKeys, originalNames, mime
     await reportJobUsage({ apiKeyId, usageEventId, bytesOut });
   } catch (err) {
     await updateJobStatus(id, 'failed', { error: err.message });
+    // A failed task doesn't count against the user's daily allowance.
+    if (quota?.subject) await decrementDailyUsage(quota.subject, quota.day).catch(() => {});
     throw err;
   } finally {
     // Inputs are never needed again once the job has run — delete them right away.

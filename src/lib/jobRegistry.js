@@ -91,8 +91,8 @@ export const TOOLS = {
   'pdf-to-powerpoint': async (files) => { const r = await pdfToOffice(files[0], 'pptx'); return [r]; },
 
   /* ---- OCR ---- */
-  ocr: async (files, { lang, output } = {}) => {
-    const { text, pdf } = await ocr(files, { lang: lang || 'tam+eng' });
+  ocr: async (files, { lang, output, maxPages } = {}) => {
+    const { text, pdf } = await ocr(files, { lang: lang || 'tam+eng', maxPages });
     const base = stem(files[0].originalname, 'ocr');
     const txt = { name: `${base}_ocr.txt`, bytes: Buffer.from(text, 'utf-8') };
     const searchable = { name: `${base}_searchable.pdf`, bytes: Buffer.from(pdf) };

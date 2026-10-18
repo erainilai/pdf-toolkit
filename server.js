@@ -7,6 +7,7 @@ import v1Router from './src/routes/v1.js';
 import stripeWebhookRouter from './src/routes/stripeWebhook.js';
 import accountRouter from './src/routes/account.js';
 import checkoutRouter, { razorpayWebhook } from './src/routes/checkout.js';
+import webJobsRouter from './src/routes/webJobs.js';
 import { sessionContext, sameOriginOnly } from './src/middleware/session.js';
 import { initDb } from './src/lib/db.js';
 import { queueMode } from './src/lib/queue.js';
@@ -35,6 +36,7 @@ app.use('/api/v1', v1Router);
 app.use('/api', sessionContext, sameOriginOnly);
 app.use('/api', accountRouter);
 app.use('/api/checkout', checkoutRouter);
+app.use('/api/jobs', webJobsRouter);
 app.use('/api', apiRouter);
 
 app.use((err, req, res, next) => {
