@@ -10,7 +10,7 @@ async function main() {
     console.log('REDIS_URL is not set — jobs run inline inside the web process. Nothing for this worker to do.');
     return;
   }
-  initDb();
+  await initDb();
   const { Worker } = await import('bullmq');
   const connection = await getRedisClient();
   const concurrency = Number(process.env.WORKER_CONCURRENCY || 2);

@@ -10,13 +10,17 @@ export function startRetentionSweeper() {
   if (!minutes) return null;
   const sweep = async () => {
     const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
-    for (const { id } of jobsToExpire(cutoff)) {
-      try {
-        await deletePrefix(`jobs/${id}/`);
-        markJobExpired(id);
-      } catch (err) {
-        console.error(`retention: could not delete files for job ${id}: ${err.message}`);
+    try {
+      for (const { id } of await jobsToExpire(cutoff)) {
+        try {
+          await deletePrefix(`jobs/${id}/`);
+          await markJobExpired(id);
+        } catch (err) {
+          console.error(`retention: could not delete files for job ${id}: ${err.message}`);
+        }
       }
+    } catch (err) {
+      console.error(`retention: sweep failed: ${err.message}`);
     }
   };
   sweep();

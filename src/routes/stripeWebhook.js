@@ -22,7 +22,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 
   try {
-    applyWebhookEvent(event);
+    await applyWebhookEvent(event);
     res.json({ received: true });
   } catch (err) {
     console.error('[stripe webhook] handler error:', err);

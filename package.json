@@ -1,7 +1,7 @@
 {
   "name": "pdf-toolkit",
   "version": "1.0.0",
-  "description": "Self-hostable document toolkit: PDF tools, Office\u2194PDF, Tamil OCR and font conversion, exam photo resizer, background removal, GST invoices and spreadsheet tools \u2014 with a hosted job API",
+  "description": "Self-hostable document toolkit: PDF tools, Office↔PDF, Tamil OCR and font conversion, exam photo resizer, background removal, GST invoices and spreadsheet tools — with a hosted job API",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -27,6 +27,7 @@
     "multer": "^2.0.0",
     "onnxruntime-node": "^1.30.0",
     "pdf-lib": "^1.17.1",
+    "pg": "^8.23.1",
     "pdfjs-dist": "^6.3.289",
     "rate-limit-redis": "^4.2.0",
     "regenerator-runtime": "^0.14.1",
@@ -36,5 +37,10 @@
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "allowScripts": {
+    "msgpackr-extract@3.0.4": true,
+    "onnxruntime-node@1.30.0": true,
+    "tesseract.js@7.0.0": true
   }
 }

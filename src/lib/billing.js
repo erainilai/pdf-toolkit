@@ -21,11 +21,11 @@ export async function createCheckoutSessionForKey(apiKeyId, { email, successUrl,
   if (!stripe) throw new Error('Billing is not configured on this server.');
   if (!process.env.STRIPE_METERED_PRICE_ID) throw new Error('STRIPE_METERED_PRICE_ID is not set.');
 
-  let apiKey = getApiKeyById(apiKeyId);
+  let apiKey = await getApiKeyById(apiKeyId);
   if (!apiKey.stripe_customer_id) {
     const customer = await stripe.customers.create({ name: apiKey.name, email, metadata: { apiKeyId } });
-    linkStripeCustomer(apiKeyId, customer.id);
-    apiKey = getApiKeyById(apiKeyId);
+    await linkStripeCustomer(apiKeyId, customer.id);
+    apiKey = await getApiKeyById(apiKeyId);
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -42,7 +42,7 @@ export async function createCheckoutSessionForKey(apiKeyId, { email, successUrl,
 export async function getInvoicePreview(apiKeyId) {
   const stripe = await getStripe();
   if (!stripe) return null;
-  const apiKey = getApiKeyById(apiKeyId);
+  const apiKey = await getApiKeyById(apiKeyId);
   if (!apiKey.stripe_subscription_id) return null;
   return stripe.invoices.createPreview({ subscription: apiKey.stripe_subscription_id });
 }
@@ -55,7 +55,7 @@ export async function reportJobUsage({ apiKeyId, usageEventId, bytesOut }) {
   if (!billingEnabled()) return;
   try {
     const stripe = await getStripe();
-    const apiKey = getApiKeyById(apiKeyId);
+    const apiKey = await getApiKeyById(apiKeyId);
     if (!apiKey?.stripe_customer_id) return;
 
     const value = METER_UNIT === 'bytes_out' ? bytesOut : 1;
@@ -65,7 +65,7 @@ export async function reportJobUsage({ apiKeyId, usageEventId, bytesOut }) {
       identifier,
       payload: { stripe_customer_id: apiKey.stripe_customer_id, value: String(value) },
     });
-    markUsageReported(usageEventId, identifier);
+    await markUsageReported(usageEventId, identifier);
   } catch (err) {
     console.error(`[billing] failed to report usage event ${usageEventId}:`, err.message);
   }
@@ -73,20 +73,20 @@ export async function reportJobUsage({ apiKeyId, usageEventId, bytesOut }) {
 
 /** Keeps api_keys.billing_status / stripe_subscription_id in sync with Stripe. Called from
  *  the webhook route (src/routes/stripeWebhook.js) for every relevant event type. */
-export function applyWebhookEvent(event) {
+export async function applyWebhookEvent(event) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object;
       const apiKeyId = session.metadata?.apiKeyId;
-      if (apiKeyId) setBillingStatus(apiKeyId, 'active', { stripeSubscriptionId: session.subscription });
+      if (apiKeyId) await setBillingStatus(apiKeyId, 'active', { stripeSubscriptionId: session.subscription });
       break;
     }
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
       const subscription = event.data.object;
-      const apiKey = findApiKeyByStripeCustomer(subscription.customer);
-      if (apiKey) setBillingStatus(apiKey.id, subscription.status, { stripeSubscriptionId: subscription.id });
+      const apiKey = await findApiKeyByStripeCustomer(subscription.customer);
+      if (apiKey) await setBillingStatus(apiKey.id, subscription.status, { stripeSubscriptionId: subscription.id });
       break;
     }
     default:

@@ -7,7 +7,7 @@ import { reportJobUsage } from './billing.js';
  *  outputs, and updates the job row. Called directly for inline (no-Redis) processing,
  *  and from src/worker.js for BullMQ-backed processing — same code, either path. */
 export async function runJob({ id, tool, options, inputKeys, originalNames, mimetypes, apiKeyId }) {
-  updateJobStatus(id, 'processing');
+  await updateJobStatus(id, 'processing');
   try {
     const handler = TOOLS[tool];
     if (!handler) throw new Error(`Unknown tool: ${tool}`);
@@ -32,11 +32,11 @@ export async function runJob({ id, tool, options, inputKeys, originalNames, mime
       bytesOut += out.bytes.length;
     }
 
-    updateJobStatus(id, 'completed', { resultFiles });
-    const usageEventId = recordUsage({ apiKeyId, tool, jobId: id, bytesIn, bytesOut });
+    await updateJobStatus(id, 'completed', { resultFiles });
+    const usageEventId = await recordUsage({ apiKeyId, tool, jobId: id, bytesIn, bytesOut });
     await reportJobUsage({ apiKeyId, usageEventId, bytesOut });
   } catch (err) {
-    updateJobStatus(id, 'failed', { error: err.message });
+    await updateJobStatus(id, 'failed', { error: err.message });
     throw err;
   } finally {
     // Inputs are never needed again once the job has run — delete them right away.

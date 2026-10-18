@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { initDb, createApiKey, listApiKeys, revokeApiKey } from '../src/lib/db.js';
+import { closeSql } from '../src/lib/sql.js';
 
-initDb();
+await initDb();
 
 const [cmd, ...rest] = process.argv.slice(2);
 
@@ -16,7 +17,7 @@ function flag(name, fallback) {
 switch (cmd) {
   case 'create': {
     const name = flag('name', 'unnamed');
-    const { id, rawKey } = createApiKey(name);
+    const { id, rawKey } = await createApiKey(name);
     console.log(`Created API key "${name}"`);
     console.log(`  id:  ${id}`);
     console.log(`  key: ${rawKey}`);
@@ -24,7 +25,7 @@ switch (cmd) {
     break;
   }
   case 'list': {
-    const keys = listApiKeys();
+    const keys = await listApiKeys();
     if (!keys.length) console.log('No API keys yet. Create one with: npm run keys -- create --name "Customer name"');
     for (const k of keys) {
       console.log(`${k.id}  ${k.name}  created=${k.created_at}  ${k.revoked_at ? `revoked=${k.revoked_at}` : 'active'}`);
@@ -37,7 +38,7 @@ switch (cmd) {
       console.error('Usage: npm run keys -- revoke <id>');
       process.exit(1);
     }
-    revokeApiKey(id);
+    await revokeApiKey(id);
     console.log(`Revoked ${id}`);
     break;
   }
@@ -49,3 +50,5 @@ switch (cmd) {
       '  npm run keys -- revoke <id>'
     );
 }
+
+await closeSql();

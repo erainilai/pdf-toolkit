@@ -86,14 +86,14 @@ router.post('/jobs', requireHealthyBilling, upload.array('files', 50), asHandler
     mimetypes.push(file.mimetype);
   }
 
-  createJob({ id, apiKeyId: req.apiKey.id, tool });
+  await createJob({ id, apiKeyId: req.apiKey.id, tool });
   await enqueueJob({ id, tool, options, inputKeys, originalNames, mimetypes, apiKeyId: req.apiKey.id });
 
   res.status(202).json({ id, status: 'queued', statusUrl: `/api/v1/jobs/${id}` });
 }));
 
-router.get('/jobs/:id', (req, res) => {
-  const job = getJobForKey(req.params.id, req.apiKey.id);
+router.get('/jobs/:id', asHandler(async (req, res) => {
+  const job = await getJobForKey(req.params.id, req.apiKey.id);
   if (!job) return res.status(404).json({ error: 'Job not found.' });
 
   const result = { id: job.id, tool: job.tool, status: job.status, createdAt: job.created_at, updatedAt: job.updated_at };
@@ -105,10 +105,10 @@ router.get('/jobs/:id', (req, res) => {
     }));
   }
   res.json(result);
-});
+}));
 
 router.get('/jobs/:id/files/:name', asHandler(async (req, res) => {
-  const job = getJobForKey(req.params.id, req.apiKey.id);
+  const job = await getJobForKey(req.params.id, req.apiKey.id);
   if (!job || job.status !== 'completed') return res.status(404).json({ error: 'File not found.' });
 
   const files = JSON.parse(job.result_files || '[]');
@@ -122,8 +122,8 @@ router.get('/jobs/:id/files/:name', asHandler(async (req, res) => {
   res.send(buffer);
 }));
 
-router.get('/usage', (req, res) => {
-  res.json(usageSummary(req.apiKey.id, Number(req.query.days) || 30));
-});
+router.get('/usage', asHandler(async (req, res) => {
+  res.json(await usageSummary(req.apiKey.id, Number(req.query.days) || 30));
+}));
 
 export default router;

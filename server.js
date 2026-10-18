@@ -14,7 +14,7 @@ import { startRetentionSweeper } from './src/lib/retention.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-initDb();
+await initDb();
 startRetentionSweeper();
 app.set('trust proxy', Number(process.env.TRUST_PROXY || 0)); // set to 1 behind a load balancer so rate limits see real client IPs
 
