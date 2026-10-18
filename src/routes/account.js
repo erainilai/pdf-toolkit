@@ -6,6 +6,7 @@ import { SESSION_COOKIE } from '../middleware/session.js';
 import { createNamedLimiter } from '../middleware/rateLimiter.js';
 import { BRAND, PLANS, TIERS, CURRENCIES, SESSION_TTL_DAYS } from '../config.js';
 import { enabledProviders, razorpayKeyId } from '../lib/payments/index.js';
+import { usageToday } from '../lib/quota.js';
 
 const router = Router();
 const json = express.json({ limit: '20kb' });
@@ -71,14 +72,15 @@ router.post('/auth/logout', asHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/** Who am I, what plan am I on, and my payment/usage history. The daily task-usage/remaining
- *  count is added once Phase 5's quota system lands. */
+/** Who am I, what plan am I on, and how much of today's allowance is left. */
 router.get('/me', asHandler(async (req, res) => {
+  const used = await usageToday(req);
   const body = {
     user: publicUser(req.user),
     tier: req.tier,
     tierEndsAt: req.tierEndsAt,
     limits: req.limits,
+    usage: { today: used, remaining: Math.max(0, req.limits.tasksPerDay - used) },
   };
   if (req.user) {
     body.payments = await listPayments(req.user.id);

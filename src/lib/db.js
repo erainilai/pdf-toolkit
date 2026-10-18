@@ -82,6 +82,12 @@ const SCHEMA = (autoId) => `
     created_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_entitlements_user ON entitlements(user_id, ends_at);
+  CREATE TABLE IF NOT EXISTS daily_usage (
+    subject TEXT NOT NULL,
+    day TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (subject, day)
+  );
 `;
 
 async function migrate(b) {
@@ -252,3 +258,20 @@ export async function activeEntitlements(userId) {
     `SELECT plan, MIN(starts_at) AS starts_at, MAX(ends_at) AS ends_at FROM entitlements
      WHERE user_id = ? AND ends_at > ? GROUP BY plan HAVING MIN(starts_at) <= ? ORDER BY 3 DESC`, [userId, t, t]);
 }
+
+/* ---------------- Daily quota counters ---------------- */
+
+/** Atomically increments today's counter for a subject and returns the new value. */
+export async function incrementDailyUsage(subject, day) {
+  const row = await get(
+    `INSERT INTO daily_usage (subject, day, count) VALUES (?, ?, 1)
+     ON CONFLICT (subject, day) DO UPDATE SET count = daily_usage.count + 1 RETURNING count`, [subject, day]);
+  return Number(row.count);
+}
+export const decrementDailyUsage = (subject, day) =>
+  run('UPDATE daily_usage SET count = count - 1 WHERE subject = ? AND day = ? AND count > 0', [subject, day]);
+export async function getDailyUsage(subject, day) {
+  const row = await get('SELECT count FROM daily_usage WHERE subject = ? AND day = ?', [subject, day]);
+  return Number(row?.count || 0);
+}
+export const pruneDailyUsage = (beforeDay) => run('DELETE FROM daily_usage WHERE day < ?', [beforeDay]);

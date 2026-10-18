@@ -11,6 +11,7 @@ import {
 import { TOOLS, minFilesFor } from '../lib/jobRegistry.js';
 import { compressPdfImages } from '../lib/compress.js';
 import { createIpRateLimiter } from '../middleware/rateLimiter.js';
+import { enforceQuota } from '../lib/quota.js';
 
 export const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 100);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_MB * 1024 * 1024, files: 50 } });
@@ -51,13 +52,13 @@ router.get('/system-info', asHandler(async (req, res) => {
   });
 }));
 
-router.post('/merge', upload.array('files', 50), asHandler(async (req, res) => {
+router.post('/merge', upload.array('files', 50), enforceQuota(), asHandler(async (req, res) => {
   if (!req.files?.length) return res.status(400).json({ error: 'Upload at least 2 PDF files.' });
   const bytes = await mergePdfs(req.files.map((f) => f.buffer));
   sendPdf(res, bytes, 'merged.pdf');
 }));
 
-router.post('/split', upload.single('file'), asHandler(async (req, res) => {
+router.post('/split', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const { ranges, everyN } = req.body;
   const files = everyN
@@ -67,26 +68,26 @@ router.post('/split', upload.single('file'), asHandler(async (req, res) => {
   sendZip(res, files, 'split.zip');
 }));
 
-router.post('/remove-pages', upload.single('file'), asHandler(async (req, res) => {
+router.post('/remove-pages', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const bytes = await removePages(req.file.buffer, req.body.pages);
   sendPdf(res, bytes, 'removed_pages.pdf');
 }));
 
-router.post('/extract-pages', upload.single('file'), asHandler(async (req, res) => {
+router.post('/extract-pages', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const bytes = await extractPages(req.file.buffer, req.body.pages);
   sendPdf(res, bytes, 'extracted.pdf');
 }));
 
-router.post('/rotate', upload.single('file'), asHandler(async (req, res) => {
+router.post('/rotate', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const angle = parseInt(req.body.angle, 10) || 90;
   const bytes = await rotatePages(req.file.buffer, angle, req.body.pages || 'all');
   sendPdf(res, bytes, 'rotated.pdf');
 }));
 
-router.post('/organize', upload.single('file'), asHandler(async (req, res) => {
+router.post('/organize', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const order = JSON.parse(req.body.order || '[]').map((n) => n - 1);
   if (!order.length) return res.status(400).json({ error: 'No page order supplied.' });
@@ -94,13 +95,13 @@ router.post('/organize', upload.single('file'), asHandler(async (req, res) => {
   sendPdf(res, bytes, 'organized.pdf');
 }));
 
-router.post('/thumbnails', upload.single('file'), asHandler(async (req, res) => {
+router.post('/thumbnails', upload.single('file'), enforceQuota({ count: false }), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const thumbs = await renderThumbnails(req.file.buffer, { maxPages: Number(process.env.MAX_THUMBNAIL_PAGES || 300) });
   res.json({ thumbs });
 }));
 
-router.post('/watermark', upload.single('file'), asHandler(async (req, res) => {
+router.post('/watermark', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const { text, opacity, rotation, fontSize, color, position } = req.body;
   if (!text) return res.status(400).json({ error: 'Watermark text is required.' });
@@ -114,7 +115,7 @@ router.post('/watermark', upload.single('file'), asHandler(async (req, res) => {
   sendPdf(res, bytes, 'watermarked.pdf');
 }));
 
-router.post('/page-numbers', upload.single('file'), asHandler(async (req, res) => {
+router.post('/page-numbers', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const { position, startAt, format } = req.body;
   const bytes = await addPageNumbers(req.file.buffer, {
@@ -124,13 +125,13 @@ router.post('/page-numbers', upload.single('file'), asHandler(async (req, res) =
   sendPdf(res, bytes, 'numbered.pdf');
 }));
 
-router.post('/images-to-pdf', upload.array('files', 100), asHandler(async (req, res) => {
+router.post('/images-to-pdf', upload.array('files', 100), enforceQuota(), asHandler(async (req, res) => {
   if (!req.files?.length) return res.status(400).json({ error: 'Upload at least 1 image.' });
   const bytes = await imagesToPdf(req.files, { pageSize: req.body.pageSize || 'fit' });
   sendPdf(res, bytes, 'images.pdf');
 }));
 
-router.post('/pdf-to-images', upload.single('file'), asHandler(async (req, res) => {
+router.post('/pdf-to-images', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const format = req.body.format === 'jpg' ? 'jpg' : 'png';
   const files = await pdfToImages(req.file.buffer, { format, scale: parseFloat(req.body.scale) || 2 });
@@ -142,7 +143,7 @@ router.post('/pdf-to-images', upload.single('file'), asHandler(async (req, res) 
   sendZip(res, files, 'pages.zip');
 }));
 
-router.post('/pdf-to-text', upload.single('file'), asHandler(async (req, res) => {
+router.post('/pdf-to-text', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const text = await extractText(req.file.buffer);
   res.set('Content-Type', 'text/plain; charset=utf-8');
@@ -150,7 +151,7 @@ router.post('/pdf-to-text', upload.single('file'), asHandler(async (req, res) =>
   res.send(text);
 }));
 
-router.post('/compress', upload.single('file'), asHandler(async (req, res) => {
+router.post('/compress', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   const quality = req.body.quality || 'ebook';
   const strong = await compressPdfStrong(req.file.buffer, quality);
@@ -173,14 +174,14 @@ router.post('/compress', upload.single('file'), asHandler(async (req, res) => {
   sendPdf(res, bytes, 'compressed.pdf');
 }));
 
-router.post('/protect', upload.single('file'), asHandler(async (req, res) => {
+router.post('/protect', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   if (!req.body.password) return res.status(400).json({ error: 'Password is required.' });
   const bytes = await protectPdf(req.file.buffer, req.body.password);
   sendPdf(res, bytes, 'protected.pdf');
 }));
 
-router.post('/unlock', upload.single('file'), asHandler(async (req, res) => {
+router.post('/unlock', upload.single('file'), enforceQuota(), asHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Upload a PDF file.' });
   if (!req.body.password) return res.status(400).json({ error: 'Password is required.' });
   const bytes = await unlockPdf(req.file.buffer, req.body.password);
@@ -196,7 +197,7 @@ const MIME = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', webp
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
 
-router.post('/tool/:tool', upload.array('files', 50), asHandler(async (req, res) => {
+router.post('/tool/:tool', upload.array('files', 50), enforceQuota(), asHandler(async (req, res) => {
   const { tool } = req.params;
   const handler = TOOLS[tool];
   if (!handler) return res.status(404).json({ error: `Unknown tool "${tool}".` });

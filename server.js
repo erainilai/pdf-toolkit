@@ -42,6 +42,8 @@ app.use((err, req, res, next) => {
     const msg = err.code === 'LIMIT_FILE_SIZE' ? `File is too large (${process.env.MAX_UPLOAD_MB || 100} MB limit).` : err.message;
     return res.status(400).json({ error: msg });
   }
+  // QuotaError (src/lib/quota.js) carries its own status (402) and an upgrade-hint code.
+  if (err.status === 402) return res.status(402).json({ error: err.message, code: err.code || 'upgrade_required' });
   console.error(err);
   res.status(400).json({ error: err.message || 'Something went wrong.' });
 });
