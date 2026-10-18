@@ -58,6 +58,20 @@ const SCHEMA = (autoId) => `
     expires_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    provider_order_id TEXT UNIQUE,
+    provider_payment_id TEXT,
+    plan_id TEXT NOT NULL,
+    amount BIGINT NOT NULL,
+    currency TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
   CREATE TABLE IF NOT EXISTS entitlements (
     id ${autoId},
     user_id TEXT NOT NULL,
@@ -190,6 +204,27 @@ export async function getSessionUser(token) {
 }
 export const deleteSession = (token) => run('DELETE FROM sessions WHERE token_hash = ?', [sha256(token)]);
 export const deleteExpiredSessions = () => run('DELETE FROM sessions WHERE expires_at < ?', [now()]);
+
+/* ---------------- Payments ---------------- */
+
+export async function createPayment({ userId, provider, providerOrderId, planId, amount, currency }) {
+  const id = `pay_${randomBytes(12).toString('hex')}`;
+  const t = now();
+  await run(
+    `INSERT INTO payments (id, user_id, provider, provider_order_id, plan_id, amount, currency, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'created', ?, ?)`, [id, userId, provider, providerOrderId, planId, amount, currency, t, t]);
+  return id;
+}
+export const setPaymentOrderId = (id, providerOrderId) =>
+  run('UPDATE payments SET provider_order_id = ?, updated_at = ? WHERE id = ?', [providerOrderId, now(), id]);
+export const getPayment = (id) => get('SELECT * FROM payments WHERE id = ?', [id]);
+export const getPaymentByOrder = (provider, orderId) =>
+  get('SELECT * FROM payments WHERE provider = ? AND provider_order_id = ?', [provider, orderId]);
+export const markPaymentStatus = (id, status, providerPaymentId) =>
+  run('UPDATE payments SET status = ?, provider_payment_id = COALESCE(?, provider_payment_id), updated_at = ? WHERE id = ?',
+    [status, providerPaymentId ?? null, now(), id]);
+export const listPayments = (userId) =>
+  all("SELECT id, provider, plan_id, amount, currency, status, created_at FROM payments WHERE user_id = ? AND status <> 'created' ORDER BY created_at DESC LIMIT 50", [userId]);
 
 /* ---------------- Entitlements ---------------- */
 

@@ -6,6 +6,7 @@ import apiRouter from './src/routes/api.js';
 import v1Router from './src/routes/v1.js';
 import stripeWebhookRouter from './src/routes/stripeWebhook.js';
 import accountRouter from './src/routes/account.js';
+import checkoutRouter, { razorpayWebhook } from './src/routes/checkout.js';
 import { sessionContext, sameOriginOnly } from './src/middleware/session.js';
 import { initDb } from './src/lib/db.js';
 import { queueMode } from './src/lib/queue.js';
@@ -24,6 +25,8 @@ app.use(securityHeaders);
 
 app.get('/healthz', (req, res) => res.json({ ok: true, queueMode, storage: storageBackend(), billingEnabled: billingEnabled() }));
 app.use(express.static(join(__dirname, 'public')));
+// Webhooks: raw bodies for signature checks, no cookies/session, no CSRF origin check.
+app.post('/api/webhooks/razorpay', razorpayWebhook);
 // Mounted before the authenticated v1 router — Stripe calls this directly, with no API key.
 app.use('/api/v1/stripe', stripeWebhookRouter);
 app.use('/api/v1', v1Router);
@@ -31,6 +34,7 @@ app.use('/api/v1', v1Router);
 // Browser app API: cookie session → origin check → routes.
 app.use('/api', sessionContext, sameOriginOnly);
 app.use('/api', accountRouter);
+app.use('/api/checkout', checkoutRouter);
 app.use('/api', apiRouter);
 
 app.use((err, req, res, next) => {

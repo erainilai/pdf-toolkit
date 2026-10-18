@@ -1,4 +1,5 @@
 import { getStripe, billingEnabled } from './stripe.js';
+import { fulfilPayment } from './payments/index.js';
 import { getApiKeyById, linkStripeCustomer, setBillingStatus, findApiKeyByStripeCustomer, markUsageReported } from './db.js';
 
 const METER_EVENT_NAME = process.env.STRIPE_METER_EVENT_NAME || 'pdf_toolkit_jobs';
@@ -55,6 +56,8 @@ export async function reportJobUsage({ apiKeyId, usageEventId, bytesOut }) {
   if (!billingEnabled()) return;
   try {
     const stripe = await getStripe();
+    // Web users' jobs (owner "user:…"/"anon:…") are not API keys and are never metered.
+    if (String(apiKeyId).includes(':')) return;
     const apiKey = await getApiKeyById(apiKeyId);
     if (!apiKey?.stripe_customer_id) return;
 
@@ -75,8 +78,17 @@ export async function reportJobUsage({ apiKeyId, usageEventId, bytesOut }) {
  *  the webhook route (src/routes/stripeWebhook.js) for every relevant event type. */
 export async function applyWebhookEvent(event) {
   switch (event.type) {
-    case 'checkout.session.completed': {
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object;
+      // One-time plan purchases from the web app (see src/routes/checkout.js).
+      if (session.metadata?.kind === 'web_plan') {
+        if (session.payment_status === 'paid') {
+          await fulfilPayment(session.metadata.paymentId, { providerPaymentId: session.payment_intent, amount: session.amount_total, currency: session.currency });
+        }
+        break;
+      }
+      if (event.type !== 'checkout.session.completed') break;
       const apiKeyId = session.metadata?.apiKeyId;
       if (apiKeyId) await setBillingStatus(apiKeyId, 'active', { stripeSubscriptionId: session.subscription });
       break;

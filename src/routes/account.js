@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import express from 'express';
-import { createUser, getUserByEmail, createSession, deleteSession } from '../lib/db.js';
+import { createUser, getUserByEmail, createSession, deleteSession, listPayments, usageSummary } from '../lib/db.js';
 import { hashPassword, verifyPassword, setCookie, clearCookie, visitorCountry, isValidEmail } from '../lib/http.js';
 import { SESSION_COOKIE } from '../middleware/session.js';
 import { createNamedLimiter } from '../middleware/rateLimiter.js';
 import { BRAND, PLANS, TIERS, CURRENCIES, SESSION_TTL_DAYS } from '../config.js';
+import { enabledProviders, razorpayKeyId } from '../lib/payments/index.js';
 
 const router = Router();
 const json = express.json({ limit: '20kb' });
@@ -25,18 +26,19 @@ async function startSession(res, user) {
 }
 
 /** Public configuration the frontend needs: brand, plans with prices per currency, limits,
- *  which payment providers are live, and a suggested currency for this visitor.
- *  `payments` ships as a stub here — Phase 4 wires in the real enabledProviders()/razorpayKeyId(). */
+ *  which payment providers are live, and a suggested currency for this visitor. */
 router.get('/config', (req, res) => {
   const country = visitorCountry(req);
+  const providers = enabledProviders();
+  const currencies = Object.keys(CURRENCIES).filter((c) => providers.includes(CURRENCIES[c].provider));
   res.set('Cache-Control', 'public, max-age=300');
   res.json({
     brand: BRAND,
     tiers: TIERS,
     plans: Object.values(PLANS).map(({ id, tier, days, name, blurb, price }) => ({ id, tier, days, name, blurb, price })),
-    currencies: CURRENCIES,
+    currencies: Object.fromEntries(currencies.map((c) => [c, CURRENCIES[c]])),
     suggestedCurrency: country ? (country === 'IN' ? 'INR' : 'USD') : null,
-    payments: { providers: [], razorpayKeyId: null },
+    payments: { providers, razorpayKeyId: razorpayKeyId() },
   });
 });
 
@@ -69,16 +71,21 @@ router.post('/auth/logout', asHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/** Who am I, what plan am I on. Usage/remaining-quota and payment history are added once
- *  Phases 4 (payments) and 5 (quota) land. */
+/** Who am I, what plan am I on, and my payment/usage history. The daily task-usage/remaining
+ *  count is added once Phase 5's quota system lands. */
 router.get('/me', asHandler(async (req, res) => {
-  res.set('Cache-Control', 'no-store');
-  res.json({
+  const body = {
     user: publicUser(req.user),
     tier: req.tier,
     tierEndsAt: req.tierEndsAt,
     limits: req.limits,
-  });
+  };
+  if (req.user) {
+    body.payments = await listPayments(req.user.id);
+    body.history = await usageSummary(req.ownerId, 30);
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json(body);
 }));
 
 export default router;
