@@ -10,6 +10,7 @@ import { queueMode } from './src/lib/queue.js';
 import { storageBackend } from './src/lib/storage.js';
 import { billingEnabled } from './src/lib/stripe.js';
 import { startRetentionSweeper } from './src/lib/retention.js';
+import { securityHeaders } from './src/middleware/securityHeaders.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -17,6 +18,7 @@ const app = express();
 await initDb();
 startRetentionSweeper();
 app.set('trust proxy', Number(process.env.TRUST_PROXY || 0)); // set to 1 behind a load balancer so rate limits see real client IPs
+app.use(securityHeaders);
 
 app.get('/healthz', (req, res) => res.json({ ok: true, queueMode, storage: storageBackend(), billingEnabled: billingEnabled() }));
 app.use(express.static(join(__dirname, 'public')));
