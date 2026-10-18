@@ -1,7 +1,51 @@
+# Production-shaped stack on one machine. Every service is stateless except postgres/redis,
+# so in the cloud you replace those two with managed services and scale web/worker freely.
+#
+#   docker compose up -d --build
+#   docker compose up -d --scale web=2 --scale worker=4 --scale worker-heavy=2
+#
+# Put a TLS-terminating proxy / load balancer in front of "web" (health check: /readyz).
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgres://app:app@postgres:5432/app
+  REDIS_URL: redis://redis:6379
+  DATA_DIR: /app/data
+  # Shared job storage. A Docker volume works on one host; use S3 (S3_BUCKET) across hosts.
+  # S3_BUCKET: your-bucket
+  # S3_REGION: ap-south-1
+  FILE_RETENTION_MINUTES: "60"
+  BRAND_NAME: ${BRAND_NAME:-PDF Toolkit}
+  APP_URL: ${APP_URL:-http://localhost:4321}
+  # Web-app plan purchases (Phase 4+): dual gateways, switchable per currency.
+  RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+  RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+  RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  # Hosted /api/v1 usage-metered billing per API key — separate from the web-app plans above.
+  STRIPE_METERED_PRICE_ID: ${STRIPE_METERED_PRICE_ID:-}
+  STRIPE_METER_EVENT_NAME: ${STRIPE_METER_EVENT_NAME:-pdf_toolkit_jobs}
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data
 
@@ -11,42 +55,52 @@ services:
     ports:
       - "4321:4321"
     environment:
-      - REDIS_URL=redis://redis:6379
-      - DATA_DIR=/app/data
-      - API_RATE_LIMIT_MAX=60
-      - API_RATE_LIMIT_WINDOW_MS=60000
-      - WEB_RATE_LIMIT_MAX=30
-      - FILE_RETENTION_MINUTES=60
-      - TRUST_PROXY=1
-      # - S3_BUCKET=your-bucket        # uncomment to use S3 instead of the shared volume below
-      # - S3_REGION=us-east-1
-      - APP_URL=${APP_URL:-http://localhost:4321}
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
-      - STRIPE_METERED_PRICE_ID=${STRIPE_METERED_PRICE_ID:-}
-      - STRIPE_METER_EVENT_NAME=${STRIPE_METER_EVENT_NAME:-pdf_toolkit_jobs}
+      <<: *app-env
+      WEB_RATE_LIMIT_MAX: "60"
+      API_RATE_LIMIT_MAX: "60"
+      TRUST_PROXY: "1"
     volumes:
       - app-data:/app/data
     depends_on:
-      - redis
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4321/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      retries: 3
 
+  # Quick tools: merge, split, rotate, compress, images, spreadsheets, invoices…
   worker:
     build: .
     restart: unless-stopped
     command: ["node", "src/worker.js"]
     environment:
-      - REDIS_URL=redis://redis:6379
-      - DATA_DIR=/app/data
-      - WORKER_CONCURRENCY=2
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
-      - STRIPE_METER_EVENT_NAME=${STRIPE_METER_EVENT_NAME:-pdf_toolkit_jobs}
+      <<: *app-env
+      WORKER_QUEUES: standard
+      WORKER_CONCURRENCY: "4"
     volumes:
       - app-data:/app/data
     depends_on:
-      - redis
-    # Scale PDF processing independently of the web tier:
-    #   docker compose up --scale worker=4
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  # CPU/memory-heavy tools: OCR, Office ↔ PDF, background removal. Give these more CPU/RAM.
+  worker-heavy:
+    build: .
+    restart: unless-stopped
+    command: ["node", "src/worker.js"]
+    environment:
+      <<: *app-env
+      WORKER_QUEUES: heavy
+      WORKER_HEAVY_CONCURRENCY: "1"
+    volumes:
+      - app-data:/app/data
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    stop_grace_period: 5m
 
 volumes:
+  pg-data:
   redis-data:
   app-data:

@@ -74,6 +74,89 @@ default; inputs are deleted as soon as a job finishes).
 
 ---
 
+## Commercial web app
+
+The browser app is a full product: tool suites, search, accounts, plans, checkout, usage limits
+and legal pages. Everything commercial is configured with environment variables (see
+`.env.example`) — brand, prices, limits and payment keys — so a rebrand or price change is a
+deploy setting, not a code change.
+
+### Plans and limits
+
+| | Guest | Free account | Day Pass | Pro |
+|---|---|---|---|---|
+| Tasks | 10/day | 20/day | 500 in 24 h | 500/day |
+| File size | 20 MB | 25 MB | 100 MB | 100 MB |
+| Files per task | 5 | 10 | 50 | 50 |
+| OCR pages per task | 3 | 5 | 50 | 50 |
+| Queue | normal | normal | priority | priority |
+| Default price | — | — | ₹49 / $2.99 | ₹199/mo, ₹1,499/yr ($6.99 / $49.99) |
+
+Guests are limited per IP address (clearing cookies doesn't reset it); accounts are limited per
+account. A task that fails doesn't count against the daily allowance when submitted through the
+async `/api/jobs` API; the synchronous `/api/*` browser routes count on submission regardless of
+outcome. Browser-only tools (exam photo, Tamil font converter) never count — they don't touch
+the server.
+
+Day Pass and Pro are **prepaid periods** that don't auto-renew. That keeps UPI (most Indian
+payments) simple, avoids mandate/recurring-billing setup, and matches what Indian customers
+expect. Buying again stacks time on top. Recurring subscriptions can be added later on the same
+`entitlements` table.
+
+### Checkout: Razorpay (India) and Stripe (international)
+
+- **₹ prices → Razorpay**: UPI, cards, netbanking, wallets. Server creates an Order, the browser
+  opens Razorpay Checkout, the server verifies the signature (HMAC of `order_id|payment_id`),
+  makes sure the payment is captured, then activates the plan.
+- **$ prices → Stripe Checkout**: cards, Apple Pay, Google Pay. Uses inline prices, so nothing
+  needs creating in the Stripe dashboard. Shares the existing `STRIPE_SECRET_KEY` and webhook
+  with the API's metered billing below — distinguished by `metadata.kind === 'web_plan'`.
+- **Webhooks are the backstop** (user paid, then closed the tab): Razorpay
+  `POST /api/webhooks/razorpay`, Stripe `POST /api/v1/stripe/webhook`. Plan activation is
+  idempotent — browser confirmation, webhooks and retries grant exactly once — and the amount
+  and currency are checked against what was priced.
+- With only one gateway configured, the pricing page shows only that currency (Stripe can also
+  charge INR if Razorpay isn't set up). With none, plans are shown but checkout is disabled.
+- Which provider serves which currency is a plain config map (`src/config.js`'s `CURRENCIES`,
+  consumed by `src/lib/payments/index.js`'s `providerFor()`) — switching or adding a gateway is
+  a config change, not a code change.
+
+Razorpay activation asks for terms, privacy, refund and contact pages — starter versions are at
+`#/legal/*`. Highlighted text marks details only you can fill in; have them reviewed before
+launch.
+
+### Scaling
+
+Everything that holds state is behind an environment switch, so the same code runs on a laptop
+or across many machines:
+
+| Concern | Single host (default) | Multi-host |
+|---|---|---|
+| Database (users, payments, jobs, quotas) | SQLite in `DATA_DIR` | `DATABASE_URL` → PostgreSQL |
+| Job queue | In-process, bounded concurrency | `REDIS_URL` → BullMQ workers |
+| Files | Local disk | `S3_BUCKET` |
+| Rate limits | In memory | Redis |
+
+- The browser app submits **asynchronous jobs** (`POST /api/jobs` → poll → download), so long
+  OCR or Office conversions never hold an HTTP request open past load-balancer timeouts, and any
+  web replica can serve any user.
+- OCR, Office conversion and background removal run on a separate **heavy queue**
+  (`WORKER_QUEUES=heavy`), so a burst of slow jobs can't starve quick merges. Paid plans get
+  queue priority.
+- `/readyz` checks the database and Redis (for load-balancer health checks); `SIGTERM` drains
+  in-flight requests and jobs before exiting.
+- `docker-compose.yml` runs the production shape on one machine: Postgres, Redis, web, a
+  standard worker pool and a heavy worker pool —
+  `docker compose up -d --scale web=2 --scale worker=4 --scale worker-heavy=2`.
+
+### Security
+
+Passwords are hashed with scrypt; sessions are random tokens stored hashed, in `HttpOnly`,
+`SameSite=Lax` cookies (`Secure` in production). State-changing browser requests must come from
+the same origin. Sign-in and checkout are rate limited. A Content-Security-Policy allows only
+this site plus Razorpay Checkout; the UI uses system fonts rather than a web-font CDN, so
+visitors' browsers make no third-party requests except to the payment window.
+
 ## Running it as a hosted service
 
 The browser UI above (`/api/*`) is synchronous, unauthenticated, and meant for one person on
@@ -214,11 +297,17 @@ separate integration, not a refactor of this code.
 
 ### What's still manual beyond this
 
-This gets you queue + storage + auth + metering + billing. Still missing for a real commercial
-launch: a signup/key-delivery flow (keys are currently issued by the operator via CLI — see
-above), TLS termination (put this behind a reverse proxy / managed load balancer), and
-structured monitoring. The PDF logic itself needed none of this — it was already stateless
-per-request.
+Before taking real payments:
+
+- **Email**: there's no email sending yet, so no password-reset or receipt emails. Add an SMTP /
+  transactional email provider and a reset-token flow.
+- **GST invoices for your own sales**: as a GST-registered seller you must issue a tax invoice
+  for each sale. The account page lists payments; generating an invoice PDF per payment can
+  reuse the existing GST invoice tool's rendering code.
+- **Legal pages**: fill in the highlighted placeholders on `#/legal/*` and have them reviewed.
+- **Developer API keys** are still issued by the operator via CLI (see above) — there's no
+  self-serve signup/key-delivery flow for hosted `/api/v1` consumers.
+- TLS termination and monitoring (put this behind a reverse proxy / managed load balancer).
 
 ### Licensing note for hosted deployment
 
