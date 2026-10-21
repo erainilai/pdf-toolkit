@@ -1,0 +1,29 @@
+# Overlay for a real deployment (e.g. the Oracle Cloud "Always Free" VM): adds a reverse
+# proxy with automatic HTTPS in front of the existing stack from docker-compose.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Only open ports 80 and 443 (and 22 for SSH) in the VM's cloud firewall / security list —
+# leave 4321 closed there. web's "4321:4321" port mapping in docker-compose.yml then stays
+# reachable only from inside the VM (handy for `curl localhost:4321/healthz` over SSH), not
+# from the internet; the public path is always through Caddy.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_DOMAIN=${APP_DOMAIN:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+
+volumes:
+  caddy-data:
+  caddy-config:

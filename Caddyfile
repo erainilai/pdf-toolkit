@@ -1,0 +1,15 @@
+# Reverse proxy + automatic HTTPS for the production stack (see docker-compose.prod.yml).
+#
+# No domain yet: leave APP_DOMAIN unset in .env — docker-compose.prod.yml defaults it to
+# ":80", so Caddy serves plain HTTP, fine for getting the app reachable by IP while you
+# decide on a domain.
+#
+# Once you have a domain pointed at this VM's public IP (an A record), set
+# APP_DOMAIN=yourdomain.com in .env and restart Caddy — it issues and renews a free
+# Let's Encrypt certificate automatically, no extra config needed.
+
+{$APP_DOMAIN} {
+	reverse_proxy web:4321
+	encode gzip
+	header X-Content-Type-Options nosniff
+}
