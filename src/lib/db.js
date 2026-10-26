@@ -49,6 +49,7 @@ const SCHEMA = (autoId) => `
     name TEXT,
     password_hash TEXT NOT NULL,
     country TEXT,
+    is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -113,6 +114,7 @@ async function migrate(b) {
     ['api_keys', "billing_status TEXT NOT NULL DEFAULT 'none'"],
     ['usage_events', 'stripe_reported INTEGER NOT NULL DEFAULT 0'],
     ['usage_events', 'stripe_event_id TEXT'],
+    ['users', 'is_admin INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (kind === 'postgres') await exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${col}`);
     else { try { await exec(`ALTER TABLE ${table} ADD COLUMN ${col}`); } catch { /* exists */ } }
@@ -202,6 +204,8 @@ export async function createUser({ email, name, passwordHash, country }) {
 }
 export const getUserById = (id) => get('SELECT * FROM users WHERE id = ?', [id]);
 export const getUserByEmail = (email) => get('SELECT * FROM users WHERE email = ?', [email]);
+export const setAdmin = (userId, isAdmin) => run('UPDATE users SET is_admin = ? WHERE id = ?', [isAdmin ? 1 : 0, userId]);
+export const listAdmins = () => all('SELECT id, email, name, created_at FROM users WHERE is_admin = 1 ORDER BY created_at');
 
 export async function createSession(userId, ttlDays) {
   const token = randomBytes(32).toString('base64url');

@@ -27,7 +27,7 @@ const resetLimiter = createNamedLimiter({
 
 const DUMMY_HASH = await hashPassword('not-a-real-password');
 
-const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, createdAt: u.created_at };
+const publicUser = (u) => u && { id: u.id, email: u.email, name: u.name, createdAt: u.created_at, isAdmin: Boolean(u.is_admin) };
 
 async function startSession(res, user) {
   const { token } = await createSession(user.id, SESSION_TTL_DAYS);
