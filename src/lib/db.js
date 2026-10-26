@@ -58,6 +58,13 @@ const SCHEMA = (autoId) => `
     expires_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
   CREATE TABLE IF NOT EXISTS payments (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -209,7 +216,30 @@ export async function getSessionUser(token) {
   return row || null;
 }
 export const deleteSession = (token) => run('DELETE FROM sessions WHERE token_hash = ?', [sha256(token)]);
+export const deleteUserSessions = (userId) => run('DELETE FROM sessions WHERE user_id = ?', [userId]);
 export const deleteExpiredSessions = () => run('DELETE FROM sessions WHERE expires_at < ?', [now()]);
+export const updateUserPassword = (userId, passwordHash) => run('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId]);
+
+/* ---------------- Password resets ---------------- */
+
+export async function createPasswordReset(userId, ttlMinutes = 60) {
+  const token = randomBytes(32).toString('base64url');
+  const expires = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+  await run('INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)', [sha256(token), userId, now(), expires]);
+  return token;
+}
+
+/** Looks up and immediately deletes the reset token (single-use) if it's valid and unexpired. */
+export async function consumePasswordReset(token) {
+  const row = await get(
+    `SELECT u.* FROM password_resets p JOIN users u ON u.id = p.user_id WHERE p.token_hash = ? AND p.expires_at > ?`,
+    [sha256(token), now()]);
+  if (!row) return null;
+  await run('DELETE FROM password_resets WHERE token_hash = ?', [sha256(token)]);
+  return row;
+}
+
+export const deleteExpiredPasswordResets = () => run('DELETE FROM password_resets WHERE expires_at < ?', [now()]);
 
 /* ---------------- Payments ---------------- */
 

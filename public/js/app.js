@@ -7,6 +7,7 @@ import { renderTool, leaveTool } from './views/tool.js';
 import { renderPricing } from './views/pricing.js';
 import { renderAccount } from './views/account.js';
 import { renderLegal, renderDevelopers } from './views/legal.js';
+import { renderResetPassword } from './views/resetPassword.js';
 
 const main = document.getElementById('main');
 
@@ -43,6 +44,7 @@ async function route() {
   else if (head === 'account') title = await renderAccount(main, query);
   else if (head === 'legal') title = renderLegal(main, arg);
   else if (head === 'developers') title = renderDevelopers(main);
+  else if (head === 'reset-password') title = renderResetPassword(main, query);
   else title = renderNotFound();
   document.title = title ? `${title} — ${state.config.brand.name}` : `${state.config.brand.name} — PDF, Office, image and Tamil document tools`;
   highlightSuite(head === 'suite' ? arg : head === 'tool' ? main.dataset.suite : null);
@@ -141,22 +143,31 @@ let afterAuth = null;
 export function openAuth(mode = 'login', { then, reason } = {}) {
   afterAuth = then || null;
   const isSignup = mode === 'signup';
+  const isForgot = mode === 'forgot';
   authDialog.innerHTML = `
     <button class="modal-close" type="button" aria-label="Close">×</button>
     <form class="modal-body" novalidate>
-      <h2 id="authTitle">${isSignup ? 'Create your account' : 'Sign in'}</h2>
+      <h2 id="authTitle">${isForgot ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}</h2>
       ${reason ? `<p class="muted">${esc(reason)}</p>` : ''}
+      ${isForgot ? '' : `
       <div class="tabs" role="tablist">
         <button type="button" role="tab" aria-selected="${!isSignup}" data-mode="login">Sign in</button>
         <button type="button" role="tab" aria-selected="${isSignup}" data-mode="signup">Create account</button>
-      </div>
+      </div>`}
+      ${isForgot ? '<p class="muted">Enter your account email and we’ll send a link to set a new password.</p>' : ''}
       ${isSignup ? '<div class="field"><label for="aName">Name</label><input id="aName" name="name" type="text" autocomplete="name"></div>' : ''}
       <div class="field"><label for="aEmail">Email</label><input id="aEmail" name="email" type="email" autocomplete="email" required></div>
+      ${isForgot ? '' : `
       <div class="field"><label for="aPass">Password</label><input id="aPass" name="password" type="password" autocomplete="${isSignup ? 'new-password' : 'current-password'}" required minlength="8">
         ${isSignup ? '<span class="hint">At least 8 characters.</span>' : ''}</div>
+      ${isSignup ? '<div class="field"><label for="aPassConfirm">Confirm password</label><input id="aPassConfirm" name="passwordConfirm" type="password" autocomplete="new-password" required minlength="8"></div>' : ''}`}
       <p class="form-error" role="alert"></p>
-      <button class="btn btn-primary" type="submit">${isSignup ? 'Create account' : 'Sign in'}</button>
-      ${isSignup ? `<p class="small muted">By creating an account you agree to the <a href="#/legal/terms">terms</a> and <a href="#/legal/privacy">privacy policy</a>.</p>` : '<p class="small muted">Free accounts get double the daily tasks of guests.</p>'}
+      <button class="btn btn-primary" type="submit">${isForgot ? 'Send reset link' : isSignup ? 'Create account' : 'Sign in'}</button>
+      ${isForgot
+        ? '<p class="small muted"><button type="button" class="btn-text" data-mode="login">Back to sign in</button></p>'
+        : isSignup
+          ? `<p class="small muted">By creating an account you agree to the <a href="#/legal/terms">terms</a> and <a href="#/legal/privacy">privacy policy</a>.</p>`
+          : '<p class="small muted"><button type="button" class="btn-text" data-mode="forgot">Forgot password?</button> · Free accounts get double the daily tasks of guests.</p>'}
     </form>`;
   authDialog.querySelector('.modal-close').addEventListener('click', () => authDialog.close());
   authDialog.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => openAuth(b.dataset.mode, { then: afterAuth, reason })));
@@ -167,7 +178,23 @@ export function openAuth(mode = 'login', { then, reason } = {}) {
     const btn = form.querySelector('button[type=submit]');
     err.textContent = '';
     const body = Object.fromEntries(new FormData(form));
+    if (isForgot) {
+      if (!body.email) { err.textContent = 'Enter your email.'; return; }
+      btn.disabled = true;
+      try {
+        await postJSON('/api/auth/forgot', { email: body.email });
+        authDialog.close();
+        toast('If that email has an account, a reset link is on its way.');
+      } catch (ex) {
+        err.textContent = ex.message;
+      } finally {
+        btn.disabled = false;
+      }
+      return;
+    }
     if (!body.email || !body.password) { err.textContent = 'Enter your email and password.'; return; }
+    if (isSignup && body.password !== body.passwordConfirm) { err.textContent = 'Passwords don’t match.'; return; }
+    delete body.passwordConfirm;
     btn.disabled = true;
     try {
       await postJSON(isSignup ? '/api/auth/signup' : '/api/auth/login', body);

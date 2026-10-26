@@ -9,7 +9,7 @@ import accountRouter from './src/routes/account.js';
 import checkoutRouter, { razorpayWebhook } from './src/routes/checkout.js';
 import webJobsRouter from './src/routes/webJobs.js';
 import { sessionContext, sameOriginOnly } from './src/middleware/session.js';
-import { initDb, deleteExpiredSessions, pruneDailyUsage } from './src/lib/db.js';
+import { initDb, deleteExpiredSessions, deleteExpiredPasswordResets, pruneDailyUsage } from './src/lib/db.js';
 import { get as sqlGet, dialect, closeSql } from './src/lib/sql.js';
 import { queueMode, inlineQueueStats, closeQueues } from './src/lib/queue.js';
 import { getRedisClient } from './src/lib/redis.js';
@@ -31,6 +31,7 @@ app.set('trust proxy', Number(process.env.TRUST_PROXY || 0)); // set to 1 behind
 // Housekeeping that is safe to run on every replica (idempotent deletes).
 const housekeeping = setInterval(() => {
   deleteExpiredSessions().catch(() => {});
+  deleteExpiredPasswordResets().catch(() => {});
   pruneDailyUsage(new Date(Date.now() - 8 * 86_400_000).toISOString().slice(0, 10)).catch(() => {});
 }, 60 * 60_000);
 housekeeping.unref();
