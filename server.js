@@ -8,6 +8,7 @@ import stripeWebhookRouter from './src/routes/stripeWebhook.js';
 import accountRouter from './src/routes/account.js';
 import checkoutRouter, { razorpayWebhook } from './src/routes/checkout.js';
 import webJobsRouter from './src/routes/webJobs.js';
+import adminRouter from './src/routes/admin.js';
 import { sessionContext, sameOriginOnly } from './src/middleware/session.js';
 import { initDb, deleteExpiredSessions, deleteExpiredPasswordResets, pruneDailyUsage } from './src/lib/db.js';
 import { get as sqlGet, dialect, closeSql } from './src/lib/sql.js';
@@ -70,6 +71,7 @@ app.use('/api', sessionContext, sameOriginOnly);
 app.use('/api', accountRouter);
 app.use('/api/checkout', checkoutRouter);
 app.use('/api/jobs', webJobsRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api', apiRouter);
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));

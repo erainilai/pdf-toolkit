@@ -309,3 +309,31 @@ export async function getDailyUsage(subject, day) {
   return Number(row?.count || 0);
 }
 export const pruneDailyUsage = (beforeDay) => run('DELETE FROM daily_usage WHERE day < ?', [beforeDay]);
+
+/* ---------------- Admin ---------------- */
+
+/** Every user plus their lifetime task count. Tier is resolved separately by the caller via
+ *  activeEntitlements()/bestEntitlement() — doing it here per-row would mean N extra queries
+ *  anyway, so the route just loops once it has the list. */
+export const adminListUsers = () => all(
+  `SELECT u.id, u.email, u.name, u.is_admin, u.created_at,
+          (SELECT COUNT(*) FROM jobs j WHERE j.api_key_id = 'user:' || u.id) AS "jobCount"
+   FROM users u ORDER BY u.created_at DESC`);
+
+/** Recent jobs across every web user, with their email when the job belongs to a signed-in
+ *  account (null for anonymous visitors or hosted-API-key jobs — those aren't "user activity"). */
+export const adminRecentJobs = (limit = 100) => all(
+  `SELECT j.id, j.api_key_id AS "ownerId", j.tool, j.status, j.created_at, j.updated_at, u.email AS "userEmail"
+   FROM jobs j LEFT JOIN users u ON j.api_key_id = 'user:' || u.id
+   ORDER BY j.created_at DESC LIMIT ?`, [limit]);
+
+/** Revenue grouped by currency and provider — never summed across currencies. */
+export const adminRevenueSummary = () => all(
+  `SELECT currency, provider, COUNT(*) AS "count", SUM(amount) AS "total"
+   FROM payments WHERE status = 'paid' GROUP BY currency, provider ORDER BY currency, provider`);
+
+export const adminRecentPayments = (limit = 50) => all(
+  `SELECT p.id, p.user_id AS "userId", u.email AS "userEmail", p.provider, p.plan_id AS "planId",
+          p.amount, p.currency, p.status, p.created_at
+   FROM payments p LEFT JOIN users u ON u.id = p.user_id
+   WHERE p.status = 'paid' ORDER BY p.created_at DESC LIMIT ?`, [limit]);

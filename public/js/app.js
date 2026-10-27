@@ -8,6 +8,7 @@ import { renderPricing } from './views/pricing.js';
 import { renderAccount } from './views/account.js';
 import { renderLegal, renderDevelopers } from './views/legal.js';
 import { renderResetPassword } from './views/resetPassword.js';
+import { renderAdmin } from './views/admin.js';
 
 const main = document.getElementById('main');
 
@@ -45,6 +46,7 @@ async function route() {
   else if (head === 'legal') title = renderLegal(main, arg);
   else if (head === 'developers') title = renderDevelopers(main);
   else if (head === 'reset-password') title = renderResetPassword(main, query);
+  else if (head === 'admin') title = await renderAdmin(main);
   else title = renderNotFound();
   document.title = title ? `${title} — ${state.config.brand.name}` : `${state.config.brand.name} — PDF, Office, image and Tamil document tools`;
   highlightSuite(head === 'suite' ? arg : head === 'tool' ? main.dataset.suite : null);
@@ -70,6 +72,7 @@ function highlightSuite(id) {
 function renderAccountSlot() {
   const slot = document.getElementById('accountSlot');
   const me = state.me;
+  document.getElementById('adminLink').classList.toggle('hidden', !me?.user?.isAdmin);
   if (me?.user) {
     const initial = (me.user.name || me.user.email).trim()[0].toUpperCase();
     const tier = me.tier === 'pro' || me.tier === 'daypass' ? `<span class="tier">${esc(me.limits.label)}</span>` : '';

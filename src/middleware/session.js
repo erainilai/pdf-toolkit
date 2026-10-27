@@ -6,6 +6,13 @@ import { TIERS } from '../config.js';
 export const SESSION_COOKIE = 'sid';
 const VISITOR_COOKIE = 'vid';
 
+/** Picks which active entitlement wins when a user has more than one — pro outranks daypass. */
+export function bestEntitlement(ents) {
+  const pro = ents.find((e) => e.plan === 'pro');
+  const pass = ents.find((e) => e.plan === 'daypass');
+  return pro || pass || null;
+}
+
 /** Resolves who is calling the browser-facing API:
  *   req.user      — signed-in user row (or null)
  *   req.visitorId — stable random id for anonymous visitors (cookie), used to own their jobs
@@ -29,10 +36,7 @@ export async function sessionContext(req, res, next) {
     req.tier = req.user ? 'free' : 'anon';
     req.tierEndsAt = null;
     if (req.user) {
-      const ents = await activeEntitlements(req.user.id);
-      const pro = ents.find((e) => e.plan === 'pro');
-      const pass = ents.find((e) => e.plan === 'daypass');
-      const best = pro || pass;
+      const best = bestEntitlement(await activeEntitlements(req.user.id));
       if (best) { req.tier = best.plan; req.tierEndsAt = best.ends_at; }
     }
     req.limits = TIERS[req.tier];

@@ -1,5 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import { PLANS, CURRENCIES } from '../../config.js';
-import { getPayment, markPaymentStatus, grantEntitlement } from '../db.js';
+import { getPayment, markPaymentStatus, grantEntitlement, createPayment } from '../db.js';
 import { razorpayEnabled, razorpayPublicKey } from './razorpay.js';
 import { stripeEnabled } from './stripeCheckout.js';
 
@@ -39,4 +40,18 @@ export async function fulfilPayment(paymentId, { providerPaymentId, amount, curr
   const granted = await grantEntitlement({ userId: payment.user_id, plan: plan.tier, days: plan.days, paymentId });
   await markPaymentStatus(paymentId, 'paid', providerPaymentId);
   return { payment, plan, granted };
+}
+
+/** Admin override: grants a plan with no real charge. Recorded as a real $0 payment
+ *  (provider: 'admin') so it shows up identically to a paid purchase in the user's own
+ *  payment history and in activeEntitlements() — no parallel data model for "comp" plans. */
+export async function grantPlanManually({ userId, planId, adminId }) {
+  const plan = PLANS[planId];
+  if (!plan) throw new Error(`Unknown plan ${planId}`);
+  const currency = Object.keys(CURRENCIES)[0] || 'INR';
+  const orderId = `admin_${adminId}_${Date.now()}_${randomBytes(4).toString('hex')}`;
+  const paymentId = await createPayment({ userId, provider: 'admin', providerOrderId: orderId, planId, amount: 0, currency });
+  const granted = await grantEntitlement({ userId, plan: plan.tier, days: plan.days, paymentId });
+  await markPaymentStatus(paymentId, 'paid', adminId);
+  return { paymentId, plan, granted };
 }
