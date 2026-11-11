@@ -1,5 +1,5 @@
 import { SUITES, TOOLS, toolsForFile } from '../catalog.js';
-import { state, esc } from '../state.js';
+import { state, esc, isToolDisabled } from '../state.js';
 import { openSearch } from '../app.js';
 import { stashFiles } from './tool.js';
 
@@ -11,7 +11,7 @@ export function toolLink(t) {
 }
 
 export function renderHome(main) {
-  const popular = TOOLS.filter((t) => t.popular);
+  const popular = TOOLS.filter((t) => t.popular && !isToolDisabled(t.id));
   main.innerHTML = `
     <section class="finder">
       <div>
@@ -36,7 +36,7 @@ export function renderHome(main) {
     ${SUITES.map((s) => `
       <section class="suite" aria-labelledby="s-${s.id}">
         <div class="suite-head"><h2 id="s-${s.id}"><a href="#/suite/${s.id}">${esc(s.name)}</a></h2><p>${esc(s.blurb)}</p></div>
-        <ul class="tool-list">${TOOLS.filter((t) => t.suite === s.id).map(toolLink).join('')}</ul>
+        <ul class="tool-list">${TOOLS.filter((t) => t.suite === s.id && !isToolDisabled(t.id)).map(toolLink).join('')}</ul>
       </section>`).join('')}`;
 
   const search = main.querySelector('#homeSearch');
@@ -56,7 +56,7 @@ export function renderHome(main) {
   function suggest(files) {
     const out = main.querySelector('#suggest');
     if (!files.length) return;
-    const tools = toolsForFile(files[0]);
+    const tools = toolsForFile(files[0]).filter((t) => !isToolDisabled(t.id));
     const label = files.length > 1 ? `${files.length} files` : files[0].name;
     out.innerHTML = tools.length
       ? `<p class="suggest-file">${esc(label)}</p><ul>${tools.slice(0, 5).map((t) => `<li><a href="#/tool/${t.id}" data-tool="${t.id}"><span>${esc(t.name)}</span><span class="stamp">${esc(t.formats)}</span></a></li>`).join('')}</ul>`

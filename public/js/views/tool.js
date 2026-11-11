@@ -1,12 +1,18 @@
 import { TOOLS, toolById, suiteById } from '../catalog.js';
-import { state, esc, fmtSize, refreshMe } from '../state.js';
+import { state, esc, fmtSize, refreshMe, isToolDisabled } from '../state.js';
 import { submitJob, waitForJob, ApiError } from '../api.js';
 import { openUpgrade, openAuth, toast } from '../app.js';
 import * as examPhoto from '../tools/examPhoto.js';
 import * as tamilFont from '../tools/tamilFont.js';
 import * as gstInvoice from '../tools/gstInvoice.js';
+import * as signature from '../tools/signature.js';
+import * as redact from '../tools/redact.js';
+import * as formFiller from '../tools/formFiller.js';
 
-const CUSTOM = { 'exam-photo': examPhoto, 'tamil-font': tamilFont, 'gst-invoice': gstInvoice };
+const CUSTOM = {
+  'exam-photo': examPhoto, 'tamil-font': tamilFont, 'gst-invoice': gstInvoice,
+  sign: signature, redact, 'form-filler': formFiller,
+};
 
 let stashed = null;            // files dropped on the home page, handed to the next tool
 let current = null;            // { tool, files, form, abort, organize, custom }
@@ -17,6 +23,11 @@ export function leaveTool() { current?.abort?.abort(); current = null; }
 export function renderTool(main, id) {
   const tool = toolById(id);
   if (!tool) { main.innerHTML = '<div class="page-head"><h1>Tool not found</h1><p><a href="#/">See all tools</a></p></div>'; return 'Not found'; }
+  if (isToolDisabled(id)) {
+    main.innerHTML = `<div class="page-head"><h1>${esc(tool.name)}</h1>
+      <p>This tool is temporarily unavailable while we fix a processing issue. Please check back soon, or <a href="#/">see other tools</a>.</p></div>`;
+    return tool.name;
+  }
   const suite = suiteById(tool.suite);
   main.dataset.suite = tool.suite;
   current = { tool, files: [], form: {}, abort: new AbortController(), organize: null, custom: CUSTOM[tool.custom] || null };
@@ -49,7 +60,7 @@ export function renderTool(main, id) {
       <aside class="side">
         ${tool.browserOnly ? '' : planBlock()}
         <div class="side-block"><h3>More in ${esc(suite.name)}</h3><ul>
-          ${TOOLS.filter((t) => t.suite === tool.suite && t.id !== tool.id).map((t) => `<li><a href="#/tool/${t.id}">${esc(t.name)}</a></li>`).join('')}
+          ${TOOLS.filter((t) => t.suite === tool.suite && t.id !== tool.id && !isToolDisabled(t.id)).map((t) => `<li><a href="#/tool/${t.id}">${esc(t.name)}</a></li>`).join('')}
         </ul></div>
       </aside>
     </div>`;

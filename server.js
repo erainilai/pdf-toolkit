@@ -19,6 +19,7 @@ import { billingEnabled } from './src/lib/stripe.js';
 import { enabledProviders } from './src/lib/payments/index.js';
 import { startRetentionSweeper } from './src/lib/retention.js';
 import { securityHeaders } from './src/middleware/securityHeaders.js';
+import { closeBrowser } from './src/lib/htmlToPdf.js';
 import { BRAND } from './src/config.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,8 @@ app.use((err, req, res, next) => {
   }
   // QuotaError (src/lib/quota.js) carries its own status (402) and an upgrade-hint code.
   if (err.status === 402) return res.status(402).json({ error: err.message, code: err.code || 'upgrade_required' });
+  // Admin-disabled tool (src/lib/jobService.js) — a real 503, not masked as a 500 infra error.
+  if (err.code === 'tool_disabled') return res.status(503).json({ error: err.message, code: 'tool_disabled' });
   console.error(`[${req.method} ${req.originalUrl}]`, err.message);
   // Tool errors are user-facing messages (bad page range, wrong password…). Infrastructure
   // errors are not — hide those details in production.
@@ -109,6 +112,7 @@ async function shutdown(signal) {
   server.close(async () => {
     await closeQueues().catch(() => {});
     await closeSql().catch(() => {});
+    await closeBrowser().catch(() => {});
     process.exit(0);
   });
 }

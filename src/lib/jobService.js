@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createJob, getJobForKey } from './db.js';
+import { createJob, getJobForKey, isToolDisabled } from './db.js';
 import { putObject, getObject, sanitizeKeySegment } from './storage.js';
 import { enqueueJob } from './queue.js';
 
@@ -16,6 +16,12 @@ export const CONTENT_TYPES = {
 };
 
 export async function submitJob({ ownerId, tool, files = [], options = {}, priority = false, quota }) {
+  if (await isToolDisabled(tool)) {
+    const err = new Error('This tool is temporarily unavailable. Please try again later.');
+    err.status = 503;
+    err.code = 'tool_disabled';
+    throw err;
+  }
   const id = randomUUID();
   const inputKeys = [];
   const originalNames = [];

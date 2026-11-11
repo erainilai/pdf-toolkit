@@ -96,6 +96,11 @@ const SCHEMA = (autoId) => `
     count INTEGER NOT NULL,
     PRIMARY KEY (subject, day)
   );
+  CREATE TABLE IF NOT EXISTS disabled_tools (
+    tool_id TEXT PRIMARY KEY,
+    disabled_at TEXT NOT NULL,
+    disabled_by TEXT
+  );
 `;
 
 async function migrate(b) {
@@ -193,6 +198,16 @@ export const jobsToExpire = (olderThanIso) =>
 
 export const markJobExpired = (id) =>
   run("UPDATE jobs SET status = 'expired', result_files = NULL, updated_at = ? WHERE id = ?", [now(), id]);
+
+/* ---------------- Tool availability (admin kill switch) ---------------- */
+
+export const listDisabledTools = async () => (await all('SELECT tool_id FROM disabled_tools')).map((r) => r.tool_id);
+export const isToolDisabled = async (toolId) => Boolean(await get('SELECT 1 AS x FROM disabled_tools WHERE tool_id = ?', [toolId]));
+export const disableTool = (toolId, adminId) => run(
+  `INSERT INTO disabled_tools (tool_id, disabled_at, disabled_by) VALUES (?, ?, ?)
+   ON CONFLICT (tool_id) DO UPDATE SET disabled_at = excluded.disabled_at, disabled_by = excluded.disabled_by`,
+  [toolId, now(), adminId || null]);
+export const enableTool = (toolId) => run('DELETE FROM disabled_tools WHERE tool_id = ?', [toolId]);
 
 /* ---------------- Users & sessions ---------------- */
 

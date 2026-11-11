@@ -2,6 +2,8 @@ import {
   mergePdfs, splitPdf, splitEveryNPages, removePages, extractPages,
   rotatePages, organizePages, addWatermark, addPageNumbers, imagesToPdf,
   pdfToImages, extractText, compressPdfBasic,
+  setMetadata, cropPages, flattenForm, nUpPages, grayscalePdf, extractImages,
+  fillFormFields, signPdf, redactPages,
 } from './pdfOps.js';
 import { protectPdf, unlockPdf, compressPdfStrong } from './security.js';
 import { compressPdfImages } from './compress.js';
@@ -11,6 +13,7 @@ import { resizeForExam, removeBackground, convertImage } from './imageOps.js';
 import { convertSheet, cleanSheet, mergeSheets } from './sheetOps.js';
 import { renderInvoice } from './invoice.js';
 import { legacyToUnicode, unicodeToLegacy } from '../../public/js/lib/tamilFonts.js';
+import { htmlToPdf } from './htmlToPdf.js';
 
 const stem = (name, fallback) => (name || fallback).replace(/\.[^.]+$/, '');
 const parseJson = (v, what) => {
@@ -146,6 +149,42 @@ export const TOOLS = {
     const safeNo = String(inv.invoiceNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_');
     return asPdfResult(await renderInvoice(inv), `invoice_${safeNo}.pdf`);
   },
+
+  /* ---- More PDF tools ---- */
+  metadata: async (files, opts = {}) => asPdfResult(await setMetadata(files[0].buffer, opts), 'metadata.pdf'),
+
+  crop: async (files, { top, bottom, left, right } = {}) => asPdfResult(
+    await cropPages(files[0].buffer, {
+      top: Number(top) || 0, bottom: Number(bottom) || 0, left: Number(left) || 0, right: Number(right) || 0,
+    }), 'cropped.pdf'),
+
+  flatten: async (files) => asPdfResult(await flattenForm(files[0].buffer), 'flattened.pdf'),
+
+  'n-up': async (files, { layout } = {}) => asPdfResult(await nUpPages(files[0].buffer, parseInt(layout, 10) || 2), 'handout.pdf'),
+
+  grayscale: async (files) => asPdfResult(await grayscalePdf(files[0].buffer), 'grayscale.pdf'),
+
+  'extract-images': async (files) => extractImages(files[0].buffer),
+
+  'html-to-pdf': async (files, { html } = {}) => {
+    if (!html) throw new Error('"options.html" is required.');
+    return asPdfResult(await htmlToPdf(html), 'document.pdf');
+  },
+
+  'form-filler': async (files, { values, flatten } = {}) =>
+    asPdfResult(await fillFormFields(files[0].buffer, parseJson(values, 'values'), flatten !== false), 'filled.pdf'),
+
+  sign: async (files, { pageIndex, x, y, width, height } = {}) => {
+    const pdfFile = files.find((f) => f.mimetype === 'application/pdf');
+    const sigFile = files.find((f) => f.mimetype === 'image/png');
+    if (!pdfFile || !sigFile) throw new Error('A PDF file and a signature PNG are both required.');
+    return asPdfResult(await signPdf(pdfFile.buffer, {
+      pageIndex: Number(pageIndex) || 0, x: Number(x), y: Number(y), width: Number(width), height: Number(height),
+      signaturePng: sigFile.buffer,
+    }), 'signed.pdf');
+  },
+
+  redact: async (files, { redactions } = {}) => asPdfResult(await redactPages(files[0].buffer, parseJson(redactions, 'redactions')), 'redacted.pdf'),
 };
 
 /** Per-tool limits used by both APIs. minFiles 0 = the tool works from options alone. */
@@ -154,5 +193,7 @@ export const TOOL_META = {
   'sheet-merge': { minFiles: 2 },
   'tamil-font-convert': { minFiles: 0 },
   'gst-invoice': { minFiles: 0 },
+  'html-to-pdf': { minFiles: 0 },
+  sign: { minFiles: 2 }, // the PDF plus the signature PNG
 };
 export const minFilesFor = (tool) => TOOL_META[tool]?.minFiles ?? 1;

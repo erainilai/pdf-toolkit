@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import {
   adminListUsers, adminRecentJobs, adminRevenueSummary, adminRecentPayments,
   createUser, getUserByEmail, getUserById, activeEntitlements,
+  listDisabledTools, disableTool, enableTool,
 } from '../lib/db.js';
 import { hashPassword, isValidEmail } from '../lib/http.js';
 import { requireAdmin } from '../middleware/admin.js';
@@ -55,6 +56,20 @@ router.get('/activity', asHandler(async (req, res) => {
 router.get('/revenue', asHandler(async (req, res) => {
   const [summary, recent] = await Promise.all([adminRevenueSummary(), adminRecentPayments()]);
   res.json({ summary, recent });
+}));
+
+router.get('/tools', asHandler(async (req, res) => {
+  res.json({ disabled: await listDisabledTools() });
+}));
+
+router.post('/tools/:id/disable', asHandler(async (req, res) => {
+  await disableTool(req.params.id, req.user.id);
+  res.json({ ok: true });
+}));
+
+router.post('/tools/:id/enable', asHandler(async (req, res) => {
+  await enableTool(req.params.id);
+  res.json({ ok: true });
 }));
 
 export default router;

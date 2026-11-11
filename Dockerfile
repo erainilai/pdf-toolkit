@@ -8,6 +8,14 @@ FROM node:22-bookworm-slim
 #   LibreOffice converts documents that use fonts we don't ship.
 # Ghostscript is deliberately NOT installed: it is AGPL-licensed (see README "Licensing").
 # PDF compression uses the built-in image recompression pass instead.
+#
+# TODO (deploy follow-up, not yet done): the `puppeteer` dependency (HTML to PDF) bundles its
+# own Chromium, which needs shared libraries this slim image doesn't have yet — e.g. libnss3,
+# libatk-bridge2.0-0, libcups2, libxkbcommon0, libgbm1, libasound2, libpango-1.0-0. Until those
+# are added, Chromium will fail to launch in the deployed container even though it works in
+# local dev. Add them with `apt-get install -y libnss3 libatk-bridge2.0-0 libcups2 libxkbcommon0
+# libxcomposite1 libxdamage1 libgbm1 libasound2 libpango-1.0-0 libcairo2 libgtk-3-0` before relying
+# on the HTML to PDF tool in production.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       qpdf ca-certificates \
       libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-draw \

@@ -242,6 +242,22 @@ input[type=range] { width: 100%; accent-color: var(--stamp); }
 .thumb button { border: none; background: none; color: var(--ink-3); cursor: pointer; font-size: 16px; }
 .thumb button:hover { color: var(--err); }
 
+/* ---------------- Page positioner (Sign, Redact) ---------------- */
+.positioner-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.positioner-toolbar .pp-page { font-size: 13px; color: var(--ink-2); }
+.positioner-stage { display: flex; justify-content: center; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; min-height: 120px; align-items: center; }
+.pp-frame { position: relative; display: inline-block; line-height: 0; }
+.pp-img { max-width: 100%; display: block; border-radius: 3px; box-shadow: 0 1px 6px rgba(0,0,0,.4); user-select: none; }
+.pp-overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.pp-box { position: absolute; border: 2px solid var(--stamp); background: rgba(88, 101, 242, .18); box-sizing: border-box; }
+.pp-box-remove { position: absolute; top: -10px; right: -10px; width: 20px; height: 20px; border-radius: 999px; border: none; background: var(--err); color: #fff; font-size: 13px; line-height: 20px; cursor: pointer; padding: 0; }
+
+/* ---------------- Signature maker ---------------- */
+.signature-maker .sig-type { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0; }
+.sig-draw { margin: 12px 0; }
+.sig-draw canvas, .sig-preview { background: #fff; border-radius: 6px; border: 1px solid var(--rule); touch-action: none; }
+.sig-preview { display: block; margin-top: 10px; max-width: 100%; }
+
 /* ---------------- Pricing ---------------- */
 .pricing-head { display: flex; justify-content: space-between; align-items: end; gap: 24px; flex-wrap: wrap; padding-bottom: 28px; }
 .pricing-head p { color: var(--ink-2); margin-top: 8px; max-width: 54ch; }

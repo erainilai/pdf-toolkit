@@ -3,6 +3,7 @@ import express from 'express';
 import {
   createUser, getUserByEmail, createSession, deleteSession, listPayments, usageSummary,
   createPasswordReset, consumePasswordReset, updateUserPassword, deleteUserSessions,
+  listDisabledTools,
 } from '../lib/db.js';
 import { hashPassword, verifyPassword, setCookie, clearCookie, visitorCountry, isValidEmail } from '../lib/http.js';
 import { sendEmail } from '../lib/email.js';
@@ -36,7 +37,7 @@ async function startSession(res, user) {
 
 /** Public configuration the frontend needs: brand, plans with prices per currency, limits,
  *  which payment providers are live, and a suggested currency for this visitor. */
-router.get('/config', (req, res) => {
+router.get('/config', asHandler(async (req, res) => {
   const country = visitorCountry(req);
   const providers = enabledProviders();
   const currencies = Object.keys(CURRENCIES).filter((c) => providers.includes(CURRENCIES[c].provider));
@@ -48,8 +49,9 @@ router.get('/config', (req, res) => {
     currencies: Object.fromEntries(currencies.map((c) => [c, CURRENCIES[c]])),
     suggestedCurrency: country ? (country === 'IN' ? 'INR' : 'USD') : null,
     payments: { providers, razorpayKeyId: razorpayKeyId() },
+    disabledTools: await listDisabledTools(),
   });
-});
+}));
 
 router.post('/auth/signup', authLimiter, json, asHandler(async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();

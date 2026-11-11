@@ -1,5 +1,5 @@
 import { SUITES, searchTools } from './catalog.js';
-import { state, loadConfig, refreshMe, onChange, esc } from './state.js';
+import { state, loadConfig, refreshMe, onChange, esc, isToolDisabled } from './state.js';
 import { postJSON } from './api.js';
 import { renderHome } from './views/home.js';
 import { renderSuite } from './views/suite.js';
@@ -101,7 +101,7 @@ export function openSearch(prefill = '') {
 }
 function renderResults() {
   const q = searchInput.value.trim();
-  const list = q ? searchTools(q).slice(0, 8) : [];
+  const list = q ? searchTools(q).filter((t) => !isToolDisabled(t.id)).slice(0, 8) : [];
   selected = 0;
   if (!q) {
     searchResults.innerHTML = '<li class="empty">Type what you want to do — for example “compress”, “word to pdf” or “bamini”.</li>';

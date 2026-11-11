@@ -1,6 +1,7 @@
 import { state, esc, money, fmtSize, fmtDate } from '../state.js';
 import { getJSON, postJSON } from '../api.js';
 import { toast } from '../app.js';
+import { TOOLS, suiteById } from '../catalog.js';
 
 export async function renderAdmin(main) {
   if (!state.me?.user?.isAdmin) {
@@ -14,11 +15,12 @@ export async function renderAdmin(main) {
 }
 
 async function loadAndRender(main) {
-  const [usersRes, activityRes, revenueRes] = await Promise.all([
-    getJSON('/api/admin/users'), getJSON('/api/admin/activity'), getJSON('/api/admin/revenue'),
+  const [usersRes, activityRes, revenueRes, toolsRes] = await Promise.all([
+    getJSON('/api/admin/users'), getJSON('/api/admin/activity'), getJSON('/api/admin/revenue'), getJSON('/api/admin/tools'),
   ]);
   const body = main.querySelector('#adminBody');
   const plans = state.config.plans;
+  const disabled = new Set(toolsRes.disabled);
 
   body.innerHTML = `
     <div class="account-grid">
@@ -59,6 +61,18 @@ async function loadAndRender(main) {
         </tbody></table>
       </section>
       <section class="panel" style="grid-column: 1 / -1">
+        <h2>Tools</h2>
+        <p class="muted">Disable a tool to pull it out of circulation — it disappears from the site and search, and any attempt to run it is rejected, until re-enabled.</p>
+        <table class="table"><thead><tr><th>Tool</th><th>Suite</th><th>Status</th><th></th></tr></thead><tbody>
+          ${TOOLS.map((t) => `<tr data-tool="${esc(t.id)}">
+            <td>${esc(t.name)}</td>
+            <td>${esc(suiteById(t.suite)?.name || t.suite)}</td>
+            <td><span class="pill ${disabled.has(t.id) ? 'failed' : 'paid'}">${disabled.has(t.id) ? 'disabled' : 'enabled'}</span></td>
+            <td><button type="button" class="btn-text toolToggleBtn">${disabled.has(t.id) ? 'Enable' : 'Disable'}</button></td>
+          </tr>`).join('')}
+        </tbody></table>
+      </section>
+      <section class="panel" style="grid-column: 1 / -1">
         <h2>Recent activity</h2>
         ${activityRes.jobs.length ? `<table class="table"><thead><tr><th>Date</th><th>User</th><th>Tool</th><th>Status</th></tr></thead><tbody>
           ${activityRes.jobs.map((j) => `<tr><td>${fmtDate(j.created_at)}</td><td>${esc(j.userEmail || 'Guest / API')}</td><td>${esc(j.tool)}</td><td><span class="pill ${j.status === 'completed' ? 'paid' : j.status === 'failed' ? 'failed' : ''}">${esc(j.status)}</span></td></tr>`).join('')}
@@ -95,6 +109,22 @@ async function loadAndRender(main) {
     try {
       await postJSON(`/api/admin/users/${userId}/grant-plan`, { planId });
       toast('Plan granted.');
+      await loadAndRender(main);
+    } catch (ex) {
+      toast(ex.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }));
+
+  body.querySelectorAll('.toolToggleBtn').forEach((btn) => btn.addEventListener('click', async () => {
+    const row = btn.closest('tr');
+    const toolId = row.dataset.tool;
+    const isDisabling = btn.textContent.trim() === 'Disable';
+    btn.disabled = true;
+    try {
+      await postJSON(`/api/admin/tools/${toolId}/${isDisabling ? 'disable' : 'enable'}`, {});
+      toast(isDisabling ? 'Tool disabled.' : 'Tool enabled.');
       await loadAndRender(main);
     } catch (ex) {
       toast(ex.message);
