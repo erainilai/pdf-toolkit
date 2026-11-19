@@ -5,7 +5,43 @@ tools: merge, split, compress, rotate, organize, watermark, page numbers, protec
 images↔PDF conversion, and text extraction. Everything runs on your own machine — files are
 processed in memory/temp files and never sent anywhere else.
 
-## Run it
+## Use it online (deploy to Render)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/erainilai/pdf-toolkit)
+
+The repo includes a `render.yaml` blueprint, so it can run as a public web app with no install:
+
+1. Click the button above (or go to [dashboard.render.com](https://dashboard.render.com) →
+   **New → Blueprint** and pick this repo).
+2. Sign in with GitHub and approve access to `pdf-toolkit`.
+3. Leave the optional `APP_URL` / `STRIPE_*` fields blank (they're only for the paid API) and
+   click **Apply**.
+
+The first build takes a few minutes. After that you get a URL like
+`https://pdf-toolkit.onrender.com`, and Render redeploys automatically on every push to `main`.
+
+Notes on the free plan:
+- It sleeps after about 15 minutes with no visitors. The next visit takes about 30–60 seconds
+  to wake it up. Switch `plan: free` to `plan: starter` in `render.yaml` to keep it always on.
+- The disk is temporary. The PDF tools don't need it, but API keys and job history from the
+  `/api/v1` layer are wiped on each redeploy. Add a Render persistent disk (paid plans)
+  mounted at `/app/data` if you need those to survive.
+- Uploads are limited to 200 MB per file, and the free instance has 512 MB of RAM, so very
+  large PDFs may fail there.
+
+### Per-visitor rate limit
+
+So one visitor can't hog a public instance, each IP address can run 60 PDF operations every
+15 minutes (page loads don't count). Past that, the page shows a "please wait" message. Change
+it with `PUBLIC_RATE_LIMIT_MAX` / `PUBLIC_RATE_LIMIT_WINDOW_MS` in the Render dashboard, or set
+`PUBLIC_RATE_LIMIT_MAX=0` to turn it off.
+
+After the first deploy, open `https://<your-app>.onrender.com/healthz/ip`. The `ip` value
+should be your own public IP address (compare with any "what is my IP" site). If it shows
+something else, change `TRUST_PROXY` from `2` to `1` in the Render dashboard. Otherwise visitors
+could share one limit or get around it.
+
+## Run it locally
 
 ```bash
 npm install
