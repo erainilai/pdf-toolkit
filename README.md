@@ -29,6 +29,18 @@ Notes on the free plan:
 - Uploads are limited to 200 MB per file, and the free instance has 512 MB of RAM, so very
   large PDFs may fail there.
 
+### Per-visitor rate limit
+
+So one visitor can't hog a public instance, each IP address can run 60 PDF operations every
+15 minutes (page loads don't count). Past that, the page shows a "please wait" message. Change
+it with `PUBLIC_RATE_LIMIT_MAX` / `PUBLIC_RATE_LIMIT_WINDOW_MS` in the Render dashboard, or set
+`PUBLIC_RATE_LIMIT_MAX=0` to turn it off.
+
+After the first deploy, open `https://<your-app>.onrender.com/healthz/ip`. The `ip` value
+should be your own public IP address (compare with any "what is my IP" site). If it shows
+something else, change `TRUST_PROXY` from `2` to `1` in the Render dashboard. Otherwise visitors
+could share one limit or get around it.
+
 ## Run it locally
 
 ```bash

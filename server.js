@@ -9,15 +9,27 @@ import { initDb } from './src/lib/db.js';
 import { queueMode } from './src/lib/queue.js';
 import { storageBackend } from './src/lib/storage.js';
 import { billingEnabled } from './src/lib/stripe.js';
+import { createPublicRateLimiter } from './src/middleware/rateLimiter.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 
+// Behind a reverse proxy (Render, a load balancer, ...) set TRUST_PROXY to the number of proxy
+// hops so req.ip — and therefore per-visitor rate limiting — sees the real client
+// address instead of the proxy's. Leave unset when running locally.
+if (process.env.TRUST_PROXY) {
+  const v = process.env.TRUST_PROXY;
+  app.set('trust proxy', /^\d+$/.test(v) ? Number(v) : v === 'true' ? true : v);
+}
+
 initDb();
 
 app.get('/healthz', (req, res) => res.json({ ok: true, queueMode, storage: storageBackend(), billingEnabled: billingEnabled() }));
+// Shows the requester only their own address as the app sees it — use it after deploying to
+// check TRUST_PROXY is right: `ip` should be your real public IP, not a proxy's.
+app.get('/healthz/ip', (req, res) => res.json({ ip: req.ip, ips: req.ips, xForwardedFor: req.get('x-forwarded-for') || null }));
 app.use(express.static(join(__dirname, 'public')));
-app.use('/api', apiRouter);
+app.use('/api', createPublicRateLimiter(), apiRouter);
 // Mounted before the authenticated v1 router — Stripe calls this directly, with no API key.
 app.use('/api/v1/stripe', stripeWebhookRouter);
 app.use('/api/v1', v1Router);

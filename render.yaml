@@ -16,6 +16,15 @@ services:
         value: "10000"
       - key: DATA_DIR
         value: /app/data
+      # Proxy hops in front of the app, so rate limits see the real visitor IP. Render's proxy
+      # appends its own address to X-Forwarded-For, leaving the visitor second-to-last.
+      # After deploying, open /healthz/ip: "ip" should be your own public IP. If it's not, try 1.
+      - key: TRUST_PROXY
+        value: "2"
+      - key: PUBLIC_RATE_LIMIT_MAX          # PDF operations per visitor per window (0 = off)
+        value: "60"
+      - key: PUBLIC_RATE_LIMIT_WINDOW_MS    # 15 minutes
+        value: "900000"
       # Optional: set these in the Render dashboard if you use the paid /api/v1 + Stripe layer.
       - key: APP_URL
         sync: false
