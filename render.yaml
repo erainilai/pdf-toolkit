@@ -1,0 +1,27 @@
+# Render Blueprint — deploys PDF Toolkit as a public web app.
+# One-click: https://render.com/deploy?repo=https://github.com/erainilai/pdf-toolkit
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: pdf-toolkit
+    runtime: docker           # builds the existing Dockerfile (includes qpdf for Protect/Unlock)
+    plan: free                # free instances sleep after ~15 min idle; upgrade to "starter" to stay always-on
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    autoDeploy: true          # redeploy on every push to the tracked branch
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATA_DIR
+        value: /app/data
+      # Optional: set these in the Render dashboard if you use the paid /api/v1 + Stripe layer.
+      - key: APP_URL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_METERED_PRICE_ID
+        sync: false
